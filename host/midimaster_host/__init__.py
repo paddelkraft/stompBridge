@@ -1,0 +1,1 @@
+"""Computer-hosted StompBridge prototype."""

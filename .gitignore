@@ -1,0 +1,43 @@
+# PlatformIO build output and downloaded toolchains
+.pio/
+.platformio/
+
+# ESP-IDF Component Manager downloads (versions are recorded in dependencies.lock)
+managed_components/
+
+# ESP-IDF build output and generated configuration
+build/
+/sdkconfig
+/sdkconfig.old
+
+# Python environments, bytecode, and test caches
+.venv/
+.host-venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE and editor state
+.vscode/
+.idea/
+*.code-workspace
+*.swp
+*.swo
+
+# OS metadata and temporary/backup files
+.DS_Store
+._*
+.~*
+*.bak
+*.tmp
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Local-only project notes and hardware reference photos
+/local-only/

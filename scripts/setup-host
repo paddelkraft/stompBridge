@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+set -eu
+
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+venv_dir="$project_dir/.host-venv"
+
+python3 -m venv "$venv_dir"
+"$venv_dir/bin/python" -m pip install -r "$project_dir/host/requirements.txt"
+printf '%s\n' "Host environment ready: $venv_dir"

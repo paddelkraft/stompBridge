@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+set -eu
+
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+python_bin="$project_dir/.host-venv/bin/python"
+
+if [ ! -x "$python_bin" ]; then
+  printf '%s\n' "Run ./scripts/setup-host first." >&2
+  exit 1
+fi
+
+PYTHONPATH="$project_dir/host" exec "$python_bin" -m midimaster_host.app "$@"

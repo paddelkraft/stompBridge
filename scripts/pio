@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+pio_bin="$project_dir/.venv/bin/pio"
+
+# Keep toolchains, package state, and locks inside the project rather than in a
+# global user directory.
+export PLATFORMIO_CORE_DIR="$project_dir/.platformio"
+export PLATFORMIO_SETTING_ENABLE_TELEMETRY=no
+export IDF_COMPONENT_CACHE_PATH="$project_dir/.platformio/idf-component-cache"
+
+if [ ! -x "$pio_bin" ]; then
+  echo "PlatformIO is not installed in $project_dir/.venv" >&2
+  echo "Create the environment and install it with:" >&2
+  echo "  python3 -m venv .venv" >&2
+  echo "  .venv/bin/python -m pip install platformio" >&2
+  exit 1
+fi
+
+cd "$project_dir"
+exec "$pio_bin" "$@"

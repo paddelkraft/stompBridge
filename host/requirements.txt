@@ -1,0 +1,1 @@
+# The Linux USB prototype uses the standard library and ALSA raw-MIDI device.
