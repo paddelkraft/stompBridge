@@ -3,18 +3,21 @@
 #include <cstring>
 
 #include "esp_err.h"
+#include "esp_log.h"
 #include "soc/usb_struct.h"
 #include "usb/usb_helpers.h"
 
 namespace {
 extern "C" void USBHostBoardInit(void);
 
+#if CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK
 bool allowUsbDevice(const usb_device_desc_t *, uint8_t *configuration) {
   if (configuration != nullptr) {
     *configuration = 1;
   }
   return true;
 }
+#endif
 
 void clientEventCallback(const usb_host_client_event_msg_t *event,
                          void *context) {
@@ -49,6 +52,29 @@ bool UsbMidiTransport::begin() {
     return true;
   }
   USBHostBoardInit();
+
+  // The USB host emits its own phase-specific logs for root attachment,
+  // hub ports, descriptor enumeration, and reset recovery. Keep those visible
+  // during pedal bring-up so a failed stage is not mistaken for MIDI failure.
+  esp_log_level_set("USBH", ESP_LOG_DEBUG);
+  esp_log_level_set("ENUM", ESP_LOG_DEBUG);
+  esp_log_level_set("EXT_PORT", ESP_LOG_DEBUG);
+  esp_log_level_set("EXT_HUB", ESP_LOG_DEBUG);
+  esp_log_level_set("HUB", ESP_LOG_DEBUG);
+  Serial.printf(
+      "USB host config: hubs=%u multilevel=%u ctrl=%u root-debounce=%u ms "
+      "root-reset=%u/%u ms address-recovery=%u ms downstream-attempts=%u "
+      "hub-power=%u ms downstream-recovery=%u ms\n",
+      static_cast<unsigned>(CONFIG_USB_HOST_HUBS_SUPPORTED),
+      static_cast<unsigned>(CONFIG_USB_HOST_HUB_MULTI_LEVEL),
+      static_cast<unsigned>(CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE),
+      static_cast<unsigned>(CONFIG_USB_HOST_DEBOUNCE_DELAY_MS),
+      static_cast<unsigned>(CONFIG_USB_HOST_RESET_HOLD_MS),
+      static_cast<unsigned>(CONFIG_USB_HOST_RESET_RECOVERY_MS),
+      static_cast<unsigned>(CONFIG_USB_HOST_SET_ADDR_RECOVERY_MS),
+      static_cast<unsigned>(CONFIG_USB_HOST_EXT_PORT_RESET_ATTEMPTS),
+      static_cast<unsigned>(CONFIG_USB_HOST_EXT_PORT_CUSTOM_POWER_ON_DELAY_MS),
+      static_cast<unsigned>(CONFIG_USB_HOST_EXT_PORT_RESET_RECOVERY_DELAY_MS));
 
   usb_host_config_t hostConfig = {};
   hostConfig.intr_flags = ESP_INTR_FLAG_LEVEL1;
@@ -95,23 +121,68 @@ void UsbMidiTransport::daemonTask(void *) {
 void UsbMidiTransport::clientTask(void *context) {
   auto *transport = static_cast<UsbMidiTransport *>(context);
   while (true) {
-    usb_host_client_handle_events(transport->client_, portMAX_DELAY);
+    const esp_err_t error = usb_host_client_handle_events(
+        transport->client_, pdMS_TO_TICKS(100));
+    if (error != ESP_OK && error != ESP_ERR_TIMEOUT) {
+      Serial.printf("USB host client event handling failed: %s\n",
+                    esp_err_to_name(error));
+    }
+    transport->processOpenRetry();
+  }
+}
+
+void UsbMidiTransport::scheduleOpenRetry(uint8_t address) {
+  constexpr uint8_t kMaxRetries = 5;
+  if (retryAttempts_ >= kMaxRetries) {
+    retryPending_ = false;
+    Serial.printf("USB MIDI setup retries exhausted: address=%u\n",
+                  static_cast<unsigned>(address));
+    return;
+  }
+
+  const uint32_t delayMs = 250u << retryAttempts_;
+  ++retryAttempts_;
+  retryAddress_ = address;
+  retryAtMs_ = millis() + delayMs;
+  retryPending_ = true;
+  Serial.printf("USB MIDI setup retry scheduled: address=%u attempt=%u/%u "
+                "in %lu ms\n",
+                static_cast<unsigned>(address),
+                static_cast<unsigned>(retryAttempts_),
+                static_cast<unsigned>(kMaxRetries),
+                static_cast<unsigned long>(delayMs));
+}
+
+void UsbMidiTransport::processOpenRetry() {
+  if (!retryPending_ ||
+      static_cast<int32_t>(millis() - retryAtMs_) < 0) {
+    return;
+  }
+
+  const uint8_t address = retryAddress_;
+  retryPending_ = false;
+  Serial.printf("USB MIDI setup retry: address=%u\n",
+                static_cast<unsigned>(address));
+  if (openMidiDevice(address)) {
+    retryAttempts_ = 0;
+  } else if (lastOpenFailureRetryable_) {
+    scheduleOpenRetry(address);
   }
 }
 
 void UsbMidiTransport::poll() {
   const uint32_t port = USB0.hprt;
-  if (port != lastPortStatus_) {
-    lastPortStatus_ = port;
+  constexpr uint32_t kStablePortBits = (1u << 0) | (1u << 2) | (1u << 12) |
+                                       (3u << 17);
+  const uint32_t portSummary = port & kStablePortBits;
+  if (portSummary != lastPortStatus_) {
+    lastPortStatus_ = portSummary;
     Serial.printf(
-        "USB root port: connected=%u enabled=%u line=%u power=%u speed=%u "
-        "(HPRT=%08lX)\n",
+        "USB root port: connected=%u enabled=%u power=%u speed=%u\n",
         static_cast<unsigned>(port & 1u),
         static_cast<unsigned>((port >> 2) & 1u),
-        static_cast<unsigned>((port >> 10) & 3u),
         static_cast<unsigned>((port >> 12) & 1u),
-        static_cast<unsigned>((port >> 17) & 3u),
-        static_cast<unsigned long>(port));
+        static_cast<unsigned>((port >> 17) & 3u));
   }
 }
 
@@ -122,10 +193,27 @@ bool UsbMidiTransport::connected() const {
   return value;
 }
 
+bool UsbMidiTransport::connectedDevice(MidiDeviceIdentity &identity) const {
+  portENTER_CRITICAL(&stateMux_);
+  const bool value = connected_ && deviceIdentity_.vendorId != 0;
+  if (value) {
+    identity = deviceIdentity_;
+  }
+  portEXIT_CRITICAL(&stateMux_);
+  return value;
+}
+
 void UsbMidiTransport::onClientEvent(
     const usb_host_client_event_msg_t &event) {
   if (event.event == USB_HOST_CLIENT_EVENT_NEW_DEV) {
-    openMidiDevice(event.new_dev.address);
+    Serial.printf("USB device announcement: address=%u; opening enumerated device\n",
+                  static_cast<unsigned>(event.new_dev.address));
+    retryPending_ = false;
+    retryAttempts_ = 0;
+    if (!openMidiDevice(event.new_dev.address) &&
+        lastOpenFailureRetryable_) {
+      scheduleOpenRetry(event.new_dev.address);
+    }
     return;
   }
   if (event.event != USB_HOST_CLIENT_EVENT_DEV_GONE || device_ == nullptr ||
@@ -133,80 +221,107 @@ void UsbMidiTransport::onClientEvent(
     return;
   }
 
+  usb_device_handle_t goneDevice = device_;
   portENTER_CRITICAL(&stateMux_);
   connected_ = false;
   txBusy_ = false;
+  deviceIdentity_ = {};
   receivingSysEx_ = false;
   receiveLength_ = 0;
   portEXIT_CRITICAL(&stateMux_);
-  usb_host_device_close(client_, device_);
   device_ = nullptr;
+  retryPending_ = false;
+  retryAttempts_ = 0;
+  usb_host_device_close(client_, goneDevice);
   Serial.println("USB-MIDI disconnected");
 }
 
 bool UsbMidiTransport::openMidiDevice(uint8_t address) {
+  lastOpenFailureRetryable_ = false;
   usb_device_handle_t candidate = nullptr;
-  if (usb_host_device_open(client_, address, &candidate) != ESP_OK) {
+  esp_err_t error = usb_host_device_open(client_, address, &candidate);
+  if (error != ESP_OK) {
+    lastOpenFailureRetryable_ = true;
+    Serial.printf("USB open failed: address=%u error=%s\n",
+                  static_cast<unsigned>(address), esp_err_to_name(error));
     return false;
   }
 
   const usb_device_desc_t *descriptor = nullptr;
-  if (usb_host_get_device_descriptor(candidate, &descriptor) != ESP_OK ||
-      descriptor == nullptr) {
+  error = usb_host_get_device_descriptor(candidate, &descriptor);
+  if (error != ESP_OK || descriptor == nullptr) {
+    lastOpenFailureRetryable_ = true;
+    Serial.printf("USB full device descriptor failed: address=%u error=%s\n",
+                  static_cast<unsigned>(address), esp_err_to_name(error));
     usb_host_device_close(client_, candidate);
     return false;
   }
-  Serial.printf("USB device enumerated: %04X:%04X\n", descriptor->idVendor,
-                descriptor->idProduct);
-  if (descriptor->idVendor != kGp5Vendor ||
-      (descriptor->idProduct != kGp5Product &&
-       descriptor->idProduct != kPocketMasterProduct)) {
-    usb_host_device_close(client_, candidate);
-    return false;
-  }
-
+  Serial.printf("USB full device descriptor: address=%u VID:PID=%04X:%04X "
+                "EP0=%u configurations=%u\n",
+                static_cast<unsigned>(address), descriptor->idVendor,
+                descriptor->idProduct, descriptor->bMaxPacketSize0,
+                descriptor->bNumConfigurations);
   if (!discoverMidiInterface(candidate)) {
     Serial.println("USB device has no usable MIDI streaming interface");
     usb_host_device_close(client_, candidate);
     return false;
   }
 
-  esp_err_t error = usb_host_interface_claim(client_, candidate,
-                                              midiInterface_, 0);
+  error = usb_host_interface_claim(client_, candidate, midiInterface_, 0);
   if (error != ESP_OK) {
-    Serial.printf("GP-5 MIDI interface claim failed: %s\n",
+    lastOpenFailureRetryable_ = true;
+    Serial.printf("USB-MIDI interface claim failed: %s\n",
                   esp_err_to_name(error));
     usb_host_device_close(client_, candidate);
     return false;
   }
+  Serial.printf("USB MIDI interface claim succeeded: interface=%u\n",
+                static_cast<unsigned>(midiInterface_));
 
   if (rxTransfer_ == nullptr &&
-      usb_host_transfer_alloc(64, 0, &rxTransfer_) != ESP_OK) {
-    Serial.println("GP-5 MIDI receive allocation failed");
+      usb_host_transfer_alloc(kUsbReceiveTransferSize, 0, &rxTransfer_) !=
+          ESP_OK) {
+    lastOpenFailureRetryable_ = true;
+    Serial.println("USB-MIDI receive allocation failed");
+    usb_host_interface_release(client_, candidate, midiInterface_);
+    usb_host_device_close(client_, candidate);
     return false;
   }
   if (txTransfer_ == nullptr &&
       usb_host_transfer_alloc(128, 0, &txTransfer_) != ESP_OK) {
-    Serial.println("GP-5 MIDI transmit allocation failed");
+    lastOpenFailureRetryable_ = true;
+    Serial.println("USB-MIDI transmit allocation failed");
+    usb_host_interface_release(client_, candidate, midiInterface_);
+    usb_host_device_close(client_, candidate);
     return false;
   }
 
   device_ = candidate;
   rxTransfer_->device_handle = device_;
   rxTransfer_->bEndpointAddress = midiEndpointIn_;
-  rxTransfer_->num_bytes = 64;
+  rxTransfer_->num_bytes = kUsbReceiveTransferSize;
   rxTransfer_->callback = receiveCallback;
   rxTransfer_->context = this;
+  portENTER_CRITICAL(&stateMux_);
+  connected_ = true;
+  deviceIdentity_.vendorId = descriptor->idVendor;
+  deviceIdentity_.productId = descriptor->idProduct;
+  portEXIT_CRITICAL(&stateMux_);
   error = usb_host_transfer_submit(rxTransfer_);
   if (error != ESP_OK) {
-    Serial.printf("GP-5 MIDI receive start failed: %s\n",
+    lastOpenFailureRetryable_ = true;
+    Serial.printf("USB-MIDI receive start failed: %s\n",
                   esp_err_to_name(error));
+    portENTER_CRITICAL(&stateMux_);
+    connected_ = false;
+    deviceIdentity_ = {};
+    portEXIT_CRITICAL(&stateMux_);
+    device_ = nullptr;
+    usb_host_interface_release(client_, candidate, midiInterface_);
+    usb_host_device_close(client_, candidate);
     return false;
   }
 
-  portENTER_CRITICAL(&stateMux_);
-  connected_ = true;
-  portEXIT_CRITICAL(&stateMux_);
   Serial.printf("USB-MIDI connected: %04X:%04X\n", descriptor->idVendor,
                 descriptor->idProduct);
   return true;
@@ -214,10 +329,16 @@ bool UsbMidiTransport::openMidiDevice(uint8_t address) {
 
 bool UsbMidiTransport::discoverMidiInterface(usb_device_handle_t device) {
   const usb_config_desc_t *configuration = nullptr;
-  if (usb_host_get_active_config_descriptor(device, &configuration) != ESP_OK ||
-      configuration == nullptr) {
+  const esp_err_t error =
+      usb_host_get_active_config_descriptor(device, &configuration);
+  if (error != ESP_OK || configuration == nullptr) {
+    lastOpenFailureRetryable_ = true;
+    Serial.println("USB configuration descriptor retrieval failed");
     return false;
   }
+  Serial.printf("USB configuration descriptor: %u bytes, %u interfaces\n",
+                static_cast<unsigned>(configuration->wTotalLength),
+                static_cast<unsigned>(configuration->bNumInterfaces));
   for (uint8_t interfaceNumber = 0; interfaceNumber < 16;
        ++interfaceNumber) {
     int interfaceOffset = 0;
@@ -254,6 +375,7 @@ bool UsbMidiTransport::discoverMidiInterface(usb_device_handle_t device) {
       return true;
     }
   }
+  Serial.println("USB MIDI Streaming interface/endpoints not found in configuration");
   return false;
 }
 
@@ -326,6 +448,9 @@ bool UsbMidiTransport::send(const uint8_t *midi, size_t length) {
 
 void UsbMidiTransport::onTransmitComplete(usb_transfer_t *transfer) {
   const bool success = transfer->status == USB_TRANSFER_STATUS_COMPLETED;
+  if (success && transfer->num_bytes > 0) {
+    Serial.printf("USB MIDI traffic: OUT %d bytes\n", transfer->num_bytes);
+  }
   portENTER_CRITICAL(&stateMux_);
   txBusy_ = false;
   portEXIT_CRITICAL(&stateMux_);
@@ -337,14 +462,36 @@ void UsbMidiTransport::onTransmitComplete(usb_transfer_t *transfer) {
 
 void UsbMidiTransport::onReceiveComplete(usb_transfer_t *transfer) {
   if (transfer->status == USB_TRANSFER_STATUS_COMPLETED) {
+    if (transfer->actual_num_bytes > 0) {
+      Serial.printf("USB MIDI traffic: IN %d bytes\n",
+                    transfer->actual_num_bytes);
+    }
     for (int offset = 0; offset + 3 < transfer->actual_num_bytes; offset += 4) {
       const uint8_t *packet = transfer->data_buffer + offset;
       const uint8_t payloadLength = usbMidiPayloadLength(packet[0]);
       consumeMidiBytes(packet + 1, payloadLength);
     }
+  } else if (transfer->status != USB_TRANSFER_STATUS_NO_DEVICE) {
+    // Do not retain a partial SysEx after an overflow: the host has discarded
+    // an unknown number of USB-MIDI event packets, so subsequent bytes cannot
+    // be safely joined to the previous frame.
+    receivingSysEx_ = false;
+    receiveLength_ = 0;
+    Serial.printf("USB-MIDI receive failed, status %u actual=%d requested=%d\n",
+                  static_cast<unsigned>(transfer->status),
+                  transfer->actual_num_bytes, transfer->num_bytes);
+    if (device_ != nullptr) {
+      const esp_err_t flushError =
+          usb_host_endpoint_flush(device_, midiEndpointIn_);
+      const esp_err_t clearError =
+          usb_host_endpoint_clear(device_, midiEndpointIn_);
+      Serial.printf("USB-MIDI IN endpoint error recovery: flush=%s clear=%s\n",
+                    esp_err_to_name(flushError),
+                    esp_err_to_name(clearError));
+    }
   }
   if (connected() && transfer->status != USB_TRANSFER_STATUS_NO_DEVICE) {
-    transfer->num_bytes = 64;
+    transfer->num_bytes = kUsbReceiveTransferSize;
     const esp_err_t error = usb_host_transfer_submit(transfer);
     if (error != ESP_OK) {
       Serial.printf("USB-MIDI receive resubmit failed: %s\n",

@@ -9,6 +9,8 @@ managed_components/
 build/
 /sdkconfig
 /sdkconfig.old
+/sdkconfig.esp32-s3-n16r8
+/sdkconfig.esp32-s3-n16r8.old
 
 # Python environments, bytecode, and test caches
 .venv/

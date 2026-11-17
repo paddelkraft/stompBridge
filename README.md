@@ -8,8 +8,8 @@ Pocket Master and Valeton GP-5.
 The current firmware combines the debounced switch diagnostic with selectable
 BLE-MIDI and USB-MIDI transports. Input and pedal mapping code depend only on
 the shared `MidiTransport` interface, so transport selection does not change
-the generated MIDI messages. USB-MIDI host mode and the Valeton GP-5 profile
-are selected for the current hardware test. The firmware sends only
+the generated MIDI messages. The default firmware uses USB-MIDI host mode and selects the Pocket Master
+or GP-5 plugin using the connected pedal’s USB ID. The firmware sends only
 live-performance commands and read-only synchronization requests; it contains
 no preset-save or editor-write commands.
 
@@ -158,6 +158,11 @@ Open the serial diagnostic at 115200 baud:
 
 Exit the monitor with `Ctrl-C`.
 
+## Standalone USB pedal setup
+
+See the [USB pedal guide](docs/usb-pedals.md) for wiring, host power, firmware
+settings, and serial troubleshooting for both pedals.
+
 ## Embedded Valeton GP-5 USB-host test
 
 The current embedded test maps the switches as follows:
@@ -192,7 +197,7 @@ changes to the switch or Pocket Master profile code.
    open when released and connects only its assigned GPIO to GND when pressed.
 3. Insulate every unused or loose conductor so it cannot touch another terminal.
 4. Upload the firmware and open the serial monitor.
-5. Confirm the startup line reports `Flash: 16 MB; PSRAM: 8 MB` and all ten
+5. Confirm the startup line reports `Flash: 16 MB` and all ten
    initial states are `RELEASED`. `PRESSED/CHECK WIRING` indicates a held switch
    or a GPIO-to-ground short.
 6. Press and release each switch once in the order below. Expect exactly one
@@ -205,5 +210,5 @@ changes to the switch or Pocket Master profile code.
    There must be no extra events. Then test a few two-switch combinations to
    catch accidental shorts between signal wires.
 
-The project configuration reserves GPIO19/20 for later native USB-host MIDI and
+The project configuration uses GPIO19/20 for native USB-host MIDI and
 does not use GPIO35/36/37, which are occupied by the N16R8 module's octal PSRAM.

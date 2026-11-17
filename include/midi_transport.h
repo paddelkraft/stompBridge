@@ -2,6 +2,11 @@
 
 #include <Arduino.h>
 
+struct MidiDeviceIdentity {
+  uint16_t vendorId = 0;
+  uint16_t productId = 0;
+};
+
 // Device profiles and input handling depend only on this interface. USB-MIDI,
 // BLE-MIDI, and future transports own their connection and framing details.
 class MidiTransport {
@@ -16,6 +21,9 @@ public:
   virtual void poll() = 0;
   virtual bool connected() const = 0;
   virtual bool send(const uint8_t *midi, size_t length) = 0;
+  // USB transports can report the enumerated device. Other transports may
+  // return false when their peer has no stable hardware identity.
+  virtual bool connectedDevice(MidiDeviceIdentity &) const { return false; }
 
   void setReceiveHandler(ReceiveHandler handler, void *context = nullptr) {
     receiveHandler_ = handler;
