@@ -132,3 +132,21 @@ the Pocket Master connected did restore enumeration during testing.
   and GP-5 sync still timed out. The logged GP-5 response command IDs also do
   not match the IDs the plugin currently handles, so response-to-command
   mapping and stable sync remain open.
+  In a later experimental USB build, the pedal was reconnected while serial
+  capture ran, but downstream port 3 repeatedly failed at
+  `CHECK_SHORT_DEV_DESC`. No MIDI interface or readback frame was available in
+  that capture. Increasing downstream reset recovery from 100 to 300 ms did
+  not change the failure, so the experiment was reverted. Confirm host VBUS
+  under load and the pedal's power/cable path before attributing that capture
+  to a protocol decoder.
+  Subsequent experimental captures with host enumeration logging restored
+  opened interface 3. A fixed preset-response CRC check was corrected; GP-5
+  CRC varies with preset index. The USB adapter's eight-event queue overflowed
+  during the patch burst. A larger queue then exposed a second overflow where
+  the adapter copied all frames into the application's eight-message ingress
+  before draining it. The experimental target now uses a bounded 32-event
+  platform queue and pumps application ingress after each event. It confirmed
+  preset and effect state on three fresh controller boots, after a pedal
+  reconnect, and after adding patch-fragment CRC validation. No receive loss
+  appeared in those successful captures. Extended traffic and repeated hot
+  reconnects remain to be tested.

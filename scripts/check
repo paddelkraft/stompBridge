@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$project_dir"
+./scripts/check-gp5-baseline
+PYTHONPATH=host python3 -m unittest discover -s host/tests
+./scripts/pio test -e native
+./scripts/pio run -e esp32-s3-n16r8
+./scripts/pio run -e stompbridge-next-input
+./scripts/pio run -e stompbridge-next-usb

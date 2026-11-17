@@ -1,6 +1,44 @@
 # PlatformIO's ESP-IDF integration builds this directory as the project's main
 # component.
-if(USB_HUB_DIAGNOSTIC)
+if(STOMPBRIDGE_NEXT_USB)
+    idf_component_register(
+        SRCS "next_usb_main.cpp"
+             "usb_midi_transport.cpp"
+             "core/connection.cpp"
+             "core/read_model.cpp"
+             "core/session_output.cpp"
+             "core/application.cpp"
+             "core/switching.cpp"
+             "core/usb_midi_decoder.cpp"
+             "devices/pocket_master/protocol.cpp"
+             "devices/pocket_master/plugin.cpp"
+             "devices/gp5/readback.cpp"
+             "devices/gp5/plugin.cpp"
+             "devices/registry.cpp"
+             "gp5_protocol.cpp"
+             "gp5_models.cpp"
+        INCLUDE_DIRS "." "../include"
+        PRIV_REQUIRES framework-arduinoespressif32 esp_driver_gpio usb
+    )
+elseif(STOMPBRIDGE_NEXT_INPUT)
+    idf_component_register(
+        SRCS "next_input_main.cpp"
+             "core/connection.cpp"
+             "core/read_model.cpp"
+             "core/session_output.cpp"
+             "core/application.cpp"
+             "core/switching.cpp"
+             "core/usb_midi_decoder.cpp"
+             "devices/pocket_master/protocol.cpp"
+             "devices/pocket_master/plugin.cpp"
+             "devices/gp5/readback.cpp"
+             "devices/gp5/plugin.cpp"
+             "devices/registry.cpp"
+             "gp5_models.cpp"
+        INCLUDE_DIRS "." "../include"
+        PRIV_REQUIRES framework-arduinoespressif32 esp_driver_gpio
+    )
+elseif(USB_HUB_DIAGNOSTIC)
     idf_component_register(
         SRCS "usb_hub_diagnostic/main.c"
              "usb_hub_diagnostic/gp5_protocol_bridge.cpp"

@@ -144,6 +144,21 @@ Downloaded compiler/framework packages are also isolated under `.platformio`.
 ./scripts/pio run
 ```
 
+Replacement development is isolated in the `stompbridge-next-input` build.
+It currently exercises the new switch gesture core as a serial diagnostic;
+it does not connect to a pedal or serve the web UI. Compile it without
+uploading with `./scripts/pio run -e stompbridge-next-input`. The separate
+`stompbridge-next-usb` target compiles the experimental USB session adapter;
+it automatically sends read-only synchronization requests after verified USB
+descriptor identification and routes the board switches to live commands. It
+has no web UI. Compile it with `./scripts/pio run -e stompbridge-next-usb`.
+GP-5 sync, effect models, and all 100 preset names were confirmed on hardware
+in this experimental target; Pocket Master has not had the same physical
+validation in this target. The default
+`esp32-s3-n16r8` build remains the working firmware until replacement
+acceptance. See [development checks](docs/development.md) and the
+[architecture progress](docs/architecture.md).
+
 Upload through the board's USB-to-UART connector:
 
 ```sh

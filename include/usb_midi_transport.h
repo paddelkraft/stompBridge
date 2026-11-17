@@ -10,16 +10,26 @@
 // hub before opening its downstream MIDI interface.
 class UsbMidiTransport : public MidiTransport {
 public:
+  enum class Event : uint8_t { TransmitComplete, ReceiveLost };
+  using EventHandler = void (*)(Event event, bool success, void *context);
+
   const char *name() const override { return "USB-MIDI"; }
   bool begin() override;
   void poll() override;
   bool connected() const override;
   bool connectedDevice(MidiDeviceIdentity &identity) const override;
   bool send(const uint8_t *midi, size_t length) override;
+  // Configure before begin(). Errors remain visible when verbose traffic is off.
+  void setVerboseTraffic(bool enabled) { verboseTraffic_ = enabled; }
 
   void onClientEvent(const usb_host_client_event_msg_t &event);
   void onReceiveComplete(usb_transfer_t *transfer);
   void onTransmitComplete(usb_transfer_t *transfer);
+  // Configure before begin(); callbacks run on the USB client task.
+  void setEventHandler(EventHandler handler, void *context = nullptr) {
+    eventHandler_ = handler;
+    eventContext_ = context;
+  }
 
 private:
   // A GP-5 patch dump spans several nibble-expanded SysEx fragments. Keep
@@ -37,6 +47,7 @@ private:
   void consumeMidiBytes(const uint8_t *midi, size_t length);
 
   bool started_ = false;
+  bool verboseTraffic_ = true;
   bool connected_ = false;
   bool txBusy_ = false;
   bool lastOpenFailureRetryable_ = false;
@@ -47,7 +58,7 @@ private:
   MidiDeviceIdentity deviceIdentity_;
   usb_host_client_handle_t client_ = nullptr;
   usb_device_handle_t device_ = nullptr;
-  usb_transfer_t *rxTransfer_ = nullptr;
+  usb_transfer_t *rxTransfer_[2] = {};
   usb_transfer_t *txTransfer_ = nullptr;
   uint8_t midiInterface_ = 0xff;
   uint8_t midiEndpointOut_ = 0;
@@ -59,4 +70,6 @@ private:
   uint8_t receiveBuffer_[kReceiveBufferCapacity] = {};
   uint32_t lastPortStatus_ = 0xffffffffu;
   mutable portMUX_TYPE stateMux_ = portMUX_INITIALIZER_UNLOCKED;
+  EventHandler eventHandler_ = nullptr;
+  void *eventContext_ = nullptr;
 };

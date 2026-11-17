@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+binary_path=$(mktemp /tmp/stompbridge-gp5-baseline.XXXXXX)
+trap 'rm -f "$binary_path"' EXIT HUP INT TERM
+g++ -std=c++17 -Wall -Wextra -Werror -I"$project_dir/include" \
+  "$project_dir/test/native/gp5_baseline.cpp" \
+  "$project_dir/src/gp5_protocol.cpp" -o "$binary_path"
+"$binary_path"
+python3 -m unittest discover -s "$project_dir/test/native" -p 'test_*.py'

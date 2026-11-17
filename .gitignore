@@ -11,6 +11,10 @@ build/
 /sdkconfig.old
 /sdkconfig.esp32-s3-n16r8
 /sdkconfig.esp32-s3-n16r8.old
+/sdkconfig.stompbridge-next-input
+/sdkconfig.stompbridge-next-input.old
+/sdkconfig.stompbridge-next-usb
+/sdkconfig.stompbridge-next-usb.old
 
 # Python environments, bytecode, and test caches
 .venv/

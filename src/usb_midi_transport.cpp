@@ -278,14 +278,16 @@ bool UsbMidiTransport::openMidiDevice(uint8_t address) {
   Serial.printf("USB MIDI interface claim succeeded: interface=%u\n",
                 static_cast<unsigned>(midiInterface_));
 
-  if (rxTransfer_ == nullptr &&
-      usb_host_transfer_alloc(kUsbReceiveTransferSize, 0, &rxTransfer_) !=
-          ESP_OK) {
-    lastOpenFailureRetryable_ = true;
-    Serial.println("USB-MIDI receive allocation failed");
-    usb_host_interface_release(client_, candidate, midiInterface_);
-    usb_host_device_close(client_, candidate);
-    return false;
+  for (auto &transfer : rxTransfer_) {
+    if (transfer == nullptr &&
+        usb_host_transfer_alloc(kUsbReceiveTransferSize, 0, &transfer) !=
+            ESP_OK) {
+      lastOpenFailureRetryable_ = true;
+      Serial.println("USB-MIDI receive allocation failed");
+      usb_host_interface_release(client_, candidate, midiInterface_);
+      usb_host_device_close(client_, candidate);
+      return false;
+    }
   }
   if (txTransfer_ == nullptr &&
       usb_host_transfer_alloc(128, 0, &txTransfer_) != ESP_OK) {
@@ -297,17 +299,19 @@ bool UsbMidiTransport::openMidiDevice(uint8_t address) {
   }
 
   device_ = candidate;
-  rxTransfer_->device_handle = device_;
-  rxTransfer_->bEndpointAddress = midiEndpointIn_;
-  rxTransfer_->num_bytes = kUsbReceiveTransferSize;
-  rxTransfer_->callback = receiveCallback;
-  rxTransfer_->context = this;
+  for (auto *transfer : rxTransfer_) {
+    transfer->device_handle = device_;
+    transfer->bEndpointAddress = midiEndpointIn_;
+    transfer->num_bytes = kUsbReceiveTransferSize;
+    transfer->callback = receiveCallback;
+    transfer->context = this;
+  }
   portENTER_CRITICAL(&stateMux_);
   connected_ = true;
   deviceIdentity_.vendorId = descriptor->idVendor;
   deviceIdentity_.productId = descriptor->idProduct;
   portEXIT_CRITICAL(&stateMux_);
-  error = usb_host_transfer_submit(rxTransfer_);
+  error = usb_host_transfer_submit(rxTransfer_[0]);
   if (error != ESP_OK) {
     lastOpenFailureRetryable_ = true;
     Serial.printf("USB-MIDI receive start failed: %s\n",
@@ -321,6 +325,10 @@ bool UsbMidiTransport::openMidiDevice(uint8_t address) {
     usb_host_device_close(client_, candidate);
     return false;
   }
+  error = usb_host_transfer_submit(rxTransfer_[1]);
+  if (error != ESP_OK)
+    Serial.printf("USB-MIDI second receive start failed: %s\n",
+                  esp_err_to_name(error));
 
   Serial.printf("USB-MIDI connected: %04X:%04X\n", descriptor->idVendor,
                 descriptor->idProduct);
@@ -448,7 +456,7 @@ bool UsbMidiTransport::send(const uint8_t *midi, size_t length) {
 
 void UsbMidiTransport::onTransmitComplete(usb_transfer_t *transfer) {
   const bool success = transfer->status == USB_TRANSFER_STATUS_COMPLETED;
-  if (success && transfer->num_bytes > 0) {
+  if (verboseTraffic_ && success && transfer->num_bytes > 0) {
     Serial.printf("USB MIDI traffic: OUT %d bytes\n", transfer->num_bytes);
   }
   portENTER_CRITICAL(&stateMux_);
@@ -458,11 +466,13 @@ void UsbMidiTransport::onTransmitComplete(usb_transfer_t *transfer) {
     Serial.printf("USB-MIDI transmit failed, status %u\n",
                   static_cast<unsigned>(transfer->status));
   }
+  if (eventHandler_ != nullptr)
+    eventHandler_(Event::TransmitComplete, success, eventContext_);
 }
 
 void UsbMidiTransport::onReceiveComplete(usb_transfer_t *transfer) {
   if (transfer->status == USB_TRANSFER_STATUS_COMPLETED) {
-    if (transfer->actual_num_bytes > 0) {
+    if (verboseTraffic_ && transfer->actual_num_bytes > 0) {
       Serial.printf("USB MIDI traffic: IN %d bytes\n",
                     transfer->actual_num_bytes);
     }
@@ -489,6 +499,8 @@ void UsbMidiTransport::onReceiveComplete(usb_transfer_t *transfer) {
                     esp_err_to_name(flushError),
                     esp_err_to_name(clearError));
     }
+    if (eventHandler_ != nullptr)
+      eventHandler_(Event::ReceiveLost, false, eventContext_);
   }
   if (connected() && transfer->status != USB_TRANSFER_STATUS_NO_DEVICE) {
     transfer->num_bytes = kUsbReceiveTransferSize;
@@ -496,6 +508,8 @@ void UsbMidiTransport::onReceiveComplete(usb_transfer_t *transfer) {
     if (error != ESP_OK) {
       Serial.printf("USB-MIDI receive resubmit failed: %s\n",
                     esp_err_to_name(error));
+      if (eventHandler_ != nullptr)
+        eventHandler_(Event::ReceiveLost, false, eventContext_);
     }
   }
 }

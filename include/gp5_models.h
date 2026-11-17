@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Arduino.h>
+#include <cstdint>
 
 // Returns a display name for the model identifier in a GP-5 patch dump.
 // Supported block indices are 2 (DST), 7 (DLY), and 8 (RVB).

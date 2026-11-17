@@ -1,5 +1,7 @@
 #include "gp5_models.h"
 
+#include <cstddef>
+
 namespace {
 
 struct ModelName {
