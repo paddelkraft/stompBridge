@@ -2,6 +2,7 @@
 
 #include "board_pins.h"
 #include "core/application.h"
+#include "core/preset_label.h"
 #include "core/switching.h"
 #include "usb_midi_transport.h"
 
@@ -30,7 +31,7 @@ public:
       Serial.println("PATCH LIST request submitted");
     if (length >= 4 && bytes[0] == 0xf0 && bytes[1] == 0x00 &&
         bytes[2] == 0x0e)
-      Serial.println("GP-5 sync-start request submitted");
+      Serial.println("Preset-name directory request submitted");
     portENTER_CRITICAL(&mux_);
     inFlight_ = generation_;
     portEXIT_CRITICAL(&mux_);
@@ -337,12 +338,23 @@ void reportSync() {
                   static_cast<unsigned long>(application.droppedMidi()),
                   static_cast<unsigned long>(application.droppedControls()));
   } else {
+    char slot[8] = {};
+    const bool hasSlot = stomp::formatPresetSlot(
+        state.capabilities, state.preset.index, slot, sizeof(slot));
     Serial.printf("SYNC gen=%lu confirmed preset=%u",
                   generation, static_cast<unsigned>(state.preset.index));
+    if (hasSlot) Serial.printf(" slot=%s", slot);
     for (uint8_t i = 0; i < state.capabilities.blockCount; ++i)
       Serial.printf(" block%u=%u", static_cast<unsigned>(state.blocks[i].id),
                     state.blocks[i].enabled.value ? 1u : 0u);
-    Serial.println();
+    Serial.printf(" names=%s models=%s\n",
+                  state.capabilities.presetNameReadback
+                      ? state.presetNamesComplete ? "confirmed" : "pending"
+                      : "unavailable",
+                  state.capabilities.blockCount > 0 &&
+                          state.capabilities.blocks[0].modelReadback
+                      ? "supported"
+                      : "unavailable");
     adapter.resetTrace();
   }
 }
@@ -390,9 +402,11 @@ void reportNamesAndModels() {
       Serial.availableForWrite() < 64 ||
       uint32_t(millis() - lastNamePrintAt) < 10) return;
   lastNamePrintAt = millis();
-  Serial.printf("PATCH P%02u %s\n",
-                static_cast<unsigned>(nextNameToPrint),
-                state.presetNames[nextNameToPrint]);
+  char slot[8] = {};
+  if (stomp::formatPresetSlot(state.capabilities, nextNameToPrint, slot,
+                              sizeof(slot)))
+    Serial.printf("PATCH %s %s\n", slot,
+                  state.presetNames[nextNameToPrint]);
   ++nextNameToPrint;
 }
 

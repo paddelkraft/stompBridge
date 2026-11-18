@@ -22,6 +22,8 @@ private:
   enum class Stage : uint8_t { Idle, FirstPreset, Live, SecondPreset, Ready, Fault };
   Result requestPreset(uint32_t now);
   Result requestLive(uint32_t now);
+  Result requestNames(uint32_t now);
+  void consumeNames(const Frame &frame);
   void fail(Result reason = Result::TimedOut);
   void publishConfirmed(uint8_t preset, const LiveBlocks &blocks);
 
@@ -29,6 +31,7 @@ private:
   DeviceUpdateSink &sink_;
   DeviceCapabilities capabilities_;
   LiveCollector collector_;
+  NameDirectoryCollector names_;
   SessionGeneration generation_ = 0;
   Stage stage_ = Stage::Idle;
   uint32_t stageStartedAt_ = 0;
@@ -38,6 +41,9 @@ private:
   LiveBlocks liveBlocks_;
   Command pendingCommand_;
   bool pendingCommandActive_ = false;
+  bool namesRequested_ = false;
+  uint8_t nameAttempts_ = 0;
+  uint32_t lastNameRequestAt_ = 0;
 };
 
 } // namespace stomp::pocket

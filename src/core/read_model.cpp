@@ -7,11 +7,14 @@ namespace stomp {
 namespace {
 bool sameCapabilities(const DeviceCapabilities &a, const DeviceCapabilities &b) {
   if (a.presetCount != b.presetCount || a.blockCount != b.blockCount ||
-      a.presetReadback != b.presetReadback || a.tuner != b.tuner ||
+      a.presetReadback != b.presetReadback ||
+      a.presetNameReadback != b.presetNameReadback ||
+      a.presetSlotLayout != b.presetSlotLayout || a.tuner != b.tuner ||
       a.tunerReadback != b.tunerReadback) return false;
   for (uint8_t i = 0; i < a.blockCount; ++i) {
     if (a.blocks[i].id != b.blocks[i].id ||
-        a.blocks[i].readback != b.blocks[i].readback) return false;
+        a.blocks[i].readback != b.blocks[i].readback ||
+        a.blocks[i].modelReadback != b.blocks[i].modelReadback) return false;
     for (size_t c = 0; c < kMaxBlockLabel; ++c) {
       if (a.blocks[i].label[c] != b.blocks[i].label[c]) return false;
     }

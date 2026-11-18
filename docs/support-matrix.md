@@ -7,8 +7,8 @@ physical acceptance.
 
 | Pedal | Transport | Evidence | Remaining limit |
 | --- | --- | --- | --- |
-| Pocket Master | USB host | Combined firmware opened MIDI interface 3, OUT `03`, IN `82`; four preset switches worked. Host testing confirmed presets and Drive/Delay/Reverb readback. | Tuner is locally assumed; full reconnect and sustained traffic validation remain. |
-| GP-5 | USB host | The earlier combined firmware selected P02-P04 but timed out during sync. The experimental `stompbridge-next-usb` target confirmed preset and Drive/Delay/Reverb readback across fresh boots and a pedal reconnect. It decoded all 100 preset names from command `0x6A`; P00–P02 match the pedal screen, allowing for the screen's added space in `Great Pedal`. Current Drive/Delay/Reverb model IDs were also decoded on hardware. | Sustained traffic, repeated hot reconnects, and physical input timing still need validation. The default combined firmware retains its earlier sync limitations. |
+| Pocket Master | USB host | Combined firmware opened MIDI interface 3, OUT `03`, IN `82`; four preset switches worked. Host testing confirmed presets and Drive/Delay/Reverb readback. The experimental `stompbridge-next-usb` target identified `84EF:0284`, confirmed P01 after switch A and P04 after D, then confirmed Drive, Delay, and Reverb transitions to off. A 2026-11-17 controller capture decoded all 100 names from the `12 40` directory; current P01 Drive, Delay, and Reverb IDs matched the pedal-screen labels Scream, Analog, and Plate 2. Earlier two hot reconnects passed. A 2026-11-18 cross-pedal capture observed Pocket Master detection, state/model/name sync after swaps with the GP-5, and ended with Pocket Master synced again, without controller reboot. Each unplug logged an IN receive error and failed the departing session's sync before cleanup. | Tuner is locally assumed. Long-run and rapid reconnects remain unverified. Other effect-name catalog entries are mapped but not individually checked on this pedal. |
+| GP-5 | USB host | The earlier combined firmware selected P02-P04 but timed out during sync. The experimental `stompbridge-next-usb` target confirmed preset and Drive/Delay/Reverb readback across fresh boots and a pedal reconnect. It decoded all 100 preset names from command `0x6A`; P00–P02 match the pedal screen, allowing for the screen's added space in `Great Pedal`. Current Drive/Delay/Reverb model IDs were also decoded on hardware. The 2026-11-18 cross-pedal capture observed GP-5 detection, state/model/name sync after swaps with Pocket Master, without controller reboot. Each unplug logged an IN receive error and failed the departing session's sync before cleanup. | Sustained traffic, rapid reconnects, and physical input timing still need validation. The default combined firmware retains its earlier sync limitations. |
 | Pocket Master | BLE MIDI | BLE central and service discovery code exists. | No reliable automatic pedal identity supplied to plugin selection; no verified embedded pedal session. |
 | GP-5 | BLE MIDI | BLE transport contains GP-5 framing comments. | No reliable automatic identity or verified embedded session. |
 
@@ -34,3 +34,25 @@ experimental replacement allows independent live MIDI commands during
 readback and reports confirmed state only after verified responses. No
 response-ID reinterpretation is authorized without captured frames and
 hardware evidence.
+
+The first Pocket Master hot-unplug capture exposed repeated USB IN transfer
+errors. The transport now pauses and rate-limits receive retries. A later
+instrumented capture found `hcd_port_recover()` failing with three idle HCD
+pipes after the upstream hub disappeared. The disconnect callback had called
+`usb_host_device_close()` without first releasing the claimed MIDI interface;
+that close returned `ESP_ERR_INVALID_STATE` and left the three pipes allocated.
+The transport now releases the interface, retries cleanup if transfers are
+still pending, and closes the device only after release. Two hardware
+unplug/reconnect cycles then recovered the root port without reboot and
+completed fresh Pocket Master sync and name reads. The temporary USB library
+instrumentation was removed after diagnosis.
+
+Pocket Master directory readback uses the read-only `12 40` request described
+in the [Pocket Master Interoperability Guide](https://github.com/klotznick/pocket-master-interoperability-guide).
+The controller capture on 2026-11-17 validated all 106 fragments and 100
+indexed records; P01 was `piranhas`, F01 was `PoketMastr`, and F50 was
+`Bass Q`. Drive, Delay, and Reverb effect IDs came from the current live
+buffer's `0x3003` field. Their labels use the public
+[Pocket Master model map](https://github.com/voronkovd/pocket-master-mcp/blob/main/src/pocket_master_mcp/data/device_map.json).
+The pedal screen confirmed the current P01 labels Scream, Analog, and Plate 2.
+Other catalog entries still need individual hardware checks.

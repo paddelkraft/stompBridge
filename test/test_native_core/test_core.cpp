@@ -2,6 +2,7 @@
 
 #include "core/bounded_queue.h"
 #include "core/owned_ingress.h"
+#include "core/preset_label.h"
 #include "core/read_model.h"
 #include "core/toggle_policy.h"
 
@@ -124,6 +125,41 @@ void test_read_model_preserves_bounded_names_and_resets_on_replacement() {
                     model.snapshot().blocks[0].modelCertainty);
 }
 
+void test_device_slot_labels_do_not_claim_name_readback() {
+  DeviceCapabilities pocket;
+  pocket.presetCount = 100;
+  pocket.presetSlotLayout = PresetSlotLayout::PocketPresetAndEffect;
+  char label[8] = {};
+  TEST_ASSERT_TRUE(formatPresetSlot(pocket, 0, label, sizeof(label)));
+  TEST_ASSERT_EQUAL_STRING("P01", label);
+  TEST_ASSERT_TRUE(formatPresetSlot(pocket, 49, label, sizeof(label)));
+  TEST_ASSERT_EQUAL_STRING("P50", label);
+  TEST_ASSERT_TRUE(formatPresetSlot(pocket, 50, label, sizeof(label)));
+  TEST_ASSERT_EQUAL_STRING("F01", label);
+  TEST_ASSERT_TRUE(formatPresetSlot(pocket, 99, label, sizeof(label)));
+  TEST_ASSERT_EQUAL_STRING("F50", label);
+  TEST_ASSERT_FALSE(pocket.presetNameReadback);
+
+  DeviceCapabilities gp5;
+  gp5.presetCount = 100;
+  gp5.presetNameReadback = true;
+  gp5.presetSlotLayout = PresetSlotLayout::ZeroBasedP;
+  TEST_ASSERT_TRUE(formatPresetSlot(gp5, 0, label, sizeof(label)));
+  TEST_ASSERT_EQUAL_STRING("P00", label);
+  TEST_ASSERT_TRUE(formatPresetSlot(gp5, 99, label, sizeof(label)));
+  TEST_ASSERT_EQUAL_STRING("P99", label);
+  TEST_ASSERT_FALSE(formatPresetSlot(gp5, 100, label, sizeof(label)));
+  TEST_ASSERT_EQUAL_STRING("", label);
+
+  ReadModel model;
+  model.setConnection(ConnectionPhase::Identifying, 1);
+  TEST_ASSERT_TRUE(model.setCapabilities(pocket));
+  const uint32_t before = model.snapshot().revision;
+  pocket.presetNameReadback = true;
+  TEST_ASSERT_TRUE(model.setCapabilities(pocket));
+  TEST_ASSERT_TRUE(model.snapshot().revision > before);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_queue_is_bounded_and_fifo);
@@ -132,5 +168,6 @@ int main(int, char **) {
   RUN_TEST(test_ingress_copies_bytes_and_preserves_disconnect);
   RUN_TEST(test_unknown_toggle_reads_back_before_set);
   RUN_TEST(test_read_model_preserves_bounded_names_and_resets_on_replacement);
+  RUN_TEST(test_device_slot_labels_do_not_claim_name_readback);
   return UNITY_END();
 }

@@ -41,6 +41,43 @@ void test_read_only_requests_are_exact() {
   TEST_ASSERT_EQUAL_UINT32(14, liveStateRequest(output, sizeof(output)));
   TEST_ASSERT_EQUAL_MEMORY(live, output, sizeof(output));
   TEST_ASSERT_EQUAL_UINT32(0, liveStateRequest(output, 13));
+  const uint8_t names[] = {0xf0, 0x00, 0x0e, 0x00, 0x01, 0x00, 0x00,
+                           0x00, 0x02, 0x01, 0x02, 0x04, 0x00, 0xf7};
+  TEST_ASSERT_EQUAL_UINT32(14, nameDirectoryRequest(output, sizeof(output)));
+  TEST_ASSERT_EQUAL_MEMORY(names, output, sizeof(output));
+}
+
+void test_name_directory_requires_all_indexed_records() {
+  uint8_t logical[kNameDirectoryBytes] = {0x12, 0x40};
+  for (uint8_t i = 0; i < 100; ++i) {
+    uint8_t *record = logical + 2 + size_t(i) * 20;
+    record[0] = i;
+    memcpy(record + 4, "Preset", 6);
+  }
+  NameDirectoryCollector collector;
+  Frame frame;
+  frame.command = 0x6a;
+  frame.index = 1;
+  frame.length = 19;
+  TEST_ASSERT_FALSE(collector.accept(frame));
+  for (uint8_t i = 0; i < 106; ++i) {
+    frame.index = i;
+    frame.length = i == 105 ? 7 : 19;
+    memcpy(frame.payload, logical + size_t(i) * 19, frame.length);
+    TEST_ASSERT_EQUAL(i == 105, collector.accept(frame));
+  }
+  TEST_ASSERT_TRUE(collector.complete());
+  TEST_ASSERT_EQUAL_STRING("Preset", collector.name(0));
+  TEST_ASSERT_EQUAL_STRING("Preset", collector.name(99));
+  logical[2 + 42 * 20] = 41;
+  collector.reset();
+  for (uint8_t i = 0; i < 106; ++i) {
+    frame.index = i;
+    frame.length = i == 105 ? 7 : 19;
+    memcpy(frame.payload, logical + size_t(i) * 19, frame.length);
+    TEST_ASSERT_FALSE(collector.accept(frame));
+  }
+  TEST_ASSERT_FALSE(collector.complete());
 }
 
 void test_frame_crc_length_and_preset_range() {
@@ -63,9 +100,9 @@ void test_live_collector_and_block_bitmap() {
   uint8_t logical[kLiveStateBytes] = {};
   logical[0] = 0x12;
   logical[1] = 0x41;
-  // Top-level module section (22 bytes), then one valid filler TLV.
+  // Top-level module section includes the 40-byte effect-ID array.
   logical[2] = 0x02;
-  logical[4] = 22;
+  logical[4] = 66;
   logical[6] = 0x01;
   logical[7] = 0x30;
   logical[8] = 4;
@@ -75,10 +112,18 @@ void test_live_collector_and_block_bitmap() {
   logical[15] = 0x30;
   logical[16] = 10;
   for (uint8_t i = 0; i < 10; ++i) logical[18 + i] = i;
-  logical[28] = 0xff;
-  logical[29] = 0xff;
-  logical[30] = 0xbc; // 444-byte filler TLV.
-  logical[31] = 0x01;
+  logical[28] = 3;
+  logical[29] = 0x30;
+  logical[30] = 40;
+  logical[43] = 3; // Drive 0x03000000, little endian.
+  logical[60] = 0x14; // Delay 0x0B000014.
+  logical[63] = 0x0b;
+  logical[64] = 0x0f; // Reverb 0x0C00000F.
+  logical[67] = 0x0c;
+  logical[72] = 0xff;
+  logical[73] = 0xff;
+  logical[74] = 0x90; // 400-byte filler TLV.
+  logical[75] = 0x01;
 
   LiveCollector collector;
   Frame frame;
@@ -99,6 +144,10 @@ void test_live_collector_and_block_bitmap() {
   TEST_ASSERT_TRUE(blocks.drive);
   TEST_ASSERT_TRUE(blocks.delay);
   TEST_ASSERT_TRUE(blocks.reverb);
+  TEST_ASSERT_TRUE(blocks.modelIdsValid);
+  TEST_ASSERT_EQUAL_HEX32(0x03000000, blocks.driveModelId);
+  TEST_ASSERT_EQUAL_HEX32(0x0b000014, blocks.delayModelId);
+  TEST_ASSERT_EQUAL_HEX32(0x0c00000f, blocks.reverbModelId);
   logical[19] = 0; // Duplicate chain slot invalidates certainty.
   TEST_ASSERT_FALSE(decodeLiveBlocks(logical, sizeof(logical), blocks));
 }
@@ -117,6 +166,7 @@ void test_module_feedback_requires_known_shape() {
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_read_only_requests_are_exact);
+  RUN_TEST(test_name_directory_requires_all_indexed_records);
   RUN_TEST(test_frame_crc_length_and_preset_range);
   RUN_TEST(test_live_collector_and_block_bitmap);
   RUN_TEST(test_module_feedback_requires_known_shape);

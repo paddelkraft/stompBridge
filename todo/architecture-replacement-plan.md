@@ -4,6 +4,24 @@ Status: replacement foundation in progress. On 2026-11-17 the user authorized
 proceeding from commit `9f770a1`, while retaining its documented GP-5
 connectivity limitations. Keep the existing firmware as the hardware fallback.
 
+Latest parity stage: [USB parity matrix](../docs/usb-parity-matrix.md) records
+the default and replacement paths separately. Replacement capabilities now
+describe preset slot numbering, preset-name readback, and effect-model
+readback. The experimental console displays Pocket Master P01–P50/F01–F50
+or GP-5 P00–P99. Both devices now have hardware-verified 100-name directory
+reads on the experimental target. Pocket Master current P01 Drive, Delay,
+and Reverb model labels were confirmed against its screen. Shared output reserves
+two slots for live sends ahead of background and readback work. The older
+progress counts below are historical; use `./scripts/check` for current
+validation.
+
+Next smallest reliability stage: run repeated and rapid hot reconnects on both
+pedals, including live MIDI sends immediately after each new session becomes
+usable. Two ordinary Pocket Master hot reconnects now pass after releasing the
+claimed MIDI interface before device close. Verify remaining model labels
+across both devices and expand readback to other effect blocks only where the
+pedal supplies validated IDs and names.
+
 Progress: support matrix refreshed in [docs/support-matrix.md](../docs/support-matrix.md).
 Native GP-5 request/decoder fixtures, USB configuration and recovery guards,
 and existing Python host tests pass. The initial native PlatformIO/Unity target

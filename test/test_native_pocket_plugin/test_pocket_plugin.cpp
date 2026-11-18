@@ -144,7 +144,7 @@ void test_ready_requires_coordinated_verified_readback() {
   TEST_ASSERT_FALSE(updates.values[4].enabled);
   TEST_ASSERT_TRUE(plugin.readyForCommands()); // Readback was scheduled.
   TEST_ASSERT_EQUAL_UINT8(2, updates.syncStarts);
-  TEST_ASSERT_EQUAL_UINT32(1, output.queued());
+  TEST_ASSERT_EQUAL_UINT32(2, output.queued());
 }
 
 void test_preset_change_during_sync_fails() {

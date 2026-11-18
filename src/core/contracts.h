@@ -90,12 +90,21 @@ struct BlockCapability {
   BlockId id = 0;
   char label[kMaxBlockLabel] = {};
   bool readback = false;
+  bool modelReadback = false;
+};
+
+enum class PresetSlotLayout : uint8_t {
+  Unspecified,
+  ZeroBasedP,
+  PocketPresetAndEffect,
 };
 
 struct DeviceCapabilities {
   uint16_t presetCount = 0;
   uint8_t blockCount = 0;
   bool presetReadback = false;
+  bool presetNameReadback = false;
+  PresetSlotLayout presetSlotLayout = PresetSlotLayout::Unspecified;
   bool tuner = false;
   bool tunerReadback = false;
   BlockCapability blocks[kMaxBlocks] = {};

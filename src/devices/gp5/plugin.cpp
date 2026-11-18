@@ -13,6 +13,7 @@ constexpr uint32_t kSyncTimeoutMs = 5000;
 void label(BlockCapability &block, uint16_t id, const char *name) {
   block.id = id;
   block.readback = true;
+  block.modelReadback = true;
   size_t i = 0;
   while (i + 1 < kMaxBlockLabel && name[i]) {
     block.label[i] = name[i];
@@ -26,6 +27,8 @@ Plugin::Plugin(SessionOutput &output, DeviceUpdateSink &sink)
     : output_(output), sink_(sink) {
   capabilities_.presetCount = 100;
   capabilities_.presetReadback = true;
+  capabilities_.presetNameReadback = true;
+  capabilities_.presetSlotLayout = PresetSlotLayout::ZeroBasedP;
   capabilities_.blockCount = 3;
   capabilities_.tuner = true;
   capabilities_.tunerReadback = false;

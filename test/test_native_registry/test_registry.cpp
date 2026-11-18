@@ -37,12 +37,20 @@ void test_plugin_instances_are_destroyed_on_replacement() {
   DevicePlugin *first = storage.create(PluginKind::PocketMaster, output, updates);
   TEST_ASSERT_NOT_NULL(first);
   TEST_ASSERT_EQUAL_STRING("pocket_master", first->id());
+  TEST_ASSERT_TRUE(first->capabilities().presetNameReadback);
+  TEST_ASSERT_EQUAL(PresetSlotLayout::PocketPresetAndEffect,
+                    first->capabilities().presetSlotLayout);
+  TEST_ASSERT_TRUE(first->capabilities().blocks[0].modelReadback);
   storage.destroy();
   TEST_ASSERT_NULL(storage.get());
   DevicePlugin *second = storage.create(PluginKind::Gp5, output, updates);
   TEST_ASSERT_NOT_NULL(second);
   TEST_ASSERT_EQUAL_STRING("valeton_gp5", second->id());
   TEST_ASSERT_EQUAL_UINT16(100, second->capabilities().presetCount);
+  TEST_ASSERT_TRUE(second->capabilities().presetNameReadback);
+  TEST_ASSERT_EQUAL(PresetSlotLayout::ZeroBasedP,
+                    second->capabilities().presetSlotLayout);
+  TEST_ASSERT_TRUE(second->capabilities().blocks[0].modelReadback);
   storage.destroy();
   TEST_ASSERT_NULL(storage.get());
   TEST_ASSERT_NULL(storage.create(static_cast<PluginKind>(99), output, updates));

@@ -43,6 +43,8 @@ private:
   bool openMidiDevice(uint8_t address);
   void scheduleOpenRetry(uint8_t address);
   void processOpenRetry();
+  void processCloseRetry();
+  void processReceiveRetry();
   bool discoverMidiInterface(usb_device_handle_t device);
   void consumeMidiBytes(const uint8_t *midi, size_t length);
 
@@ -58,7 +60,14 @@ private:
   MidiDeviceIdentity deviceIdentity_;
   usb_host_client_handle_t client_ = nullptr;
   usb_device_handle_t device_ = nullptr;
+  usb_device_handle_t closingDevice_ = nullptr;
+  bool closingInterfaceReleased_ = false;
+  uint32_t closeRetryAtMs_ = 0;
   usb_transfer_t *rxTransfer_[2] = {};
+  bool rxSubmitted_[2] = {};
+  bool rxRecoveryPending_ = false;
+  uint8_t rxRecoveryAttempts_ = 0;
+  uint32_t rxRecoveryAtMs_ = 0;
   usb_transfer_t *txTransfer_ = nullptr;
   uint8_t midiInterface_ = 0xff;
   uint8_t midiEndpointOut_ = 0;

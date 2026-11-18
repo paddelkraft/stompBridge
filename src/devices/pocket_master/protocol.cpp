@@ -10,6 +10,8 @@ constexpr uint8_t kPresetRequest[] = {0xf0, 0x00, 0x07, 0x00, 0x01, 0x00, 0x00,
                                       0x00, 0x02, 0x01, 0x02, 0x04, 0x03, 0xf7};
 constexpr uint8_t kLiveRequest[] = {0xf0, 0x00, 0x09, 0x00, 0x01, 0x00, 0x00,
                                     0x00, 0x02, 0x01, 0x02, 0x04, 0x01, 0xf7};
+constexpr uint8_t kNameRequest[] = {0xf0, 0x00, 0x0e, 0x00, 0x01, 0x00, 0x00,
+                                    0x00, 0x02, 0x01, 0x02, 0x04, 0x00, 0xf7};
 
 uint8_t crc8(const uint8_t *bytes, size_t length) {
   uint8_t crc = 0;
@@ -58,6 +60,12 @@ size_t liveStateRequest(uint8_t *output, size_t capacity) {
   if (output == nullptr || capacity < sizeof(kLiveRequest)) return 0;
   memcpy(output, kLiveRequest, sizeof(kLiveRequest));
   return sizeof(kLiveRequest);
+}
+
+size_t nameDirectoryRequest(uint8_t *output, size_t capacity) {
+  if (output == nullptr || capacity < sizeof(kNameRequest)) return 0;
+  memcpy(output, kNameRequest, sizeof(kNameRequest));
+  return sizeof(kNameRequest);
 }
 
 bool decodeFrame(const uint8_t *midi, size_t length, Frame &frame) {
@@ -124,6 +132,21 @@ bool decodeLiveBlocks(const uint8_t *logical, size_t length,
   blocks.drive = (mask & (1u << 2)) != 0;
   blocks.delay = (mask & (1u << 7)) != 0;
   blocks.reverb = (mask & (1u << 8)) != 0;
+  blocks.modelIdsValid = false;
+  const uint8_t *models = nullptr;
+  size_t modelsLength = 0;
+  if (findTlv(section, sectionLength, 0x3003, models, modelsLength) &&
+      modelsLength == 40) {
+    auto modelId = [models](size_t slot) {
+      const uint8_t *p = models + slot * 4;
+      return uint32_t(p[0]) | (uint32_t(p[1]) << 8) |
+             (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
+    };
+    blocks.driveModelId = modelId(2);
+    blocks.delayModelId = modelId(7);
+    blocks.reverbModelId = modelId(8);
+    blocks.modelIdsValid = true;
+  }
   return true;
 }
 
@@ -148,6 +171,52 @@ bool LiveCollector::accept(const Frame &frame) {
                         logical_[1] == 0x41;
   if (!complete) reset();
   return complete;
+}
+
+void NameDirectoryCollector::reset() {
+  next_ = 0;
+  complete_ = false;
+}
+
+bool NameDirectoryCollector::accept(const Frame &frame) {
+  if (complete_ || frame.command != 0x6a || frame.index >= 106 ||
+      frame.length != (frame.index == 105 ? 7u : 19u)) return false;
+  if (frame.index == 0 && next_ != 0) reset();
+  if (frame.index != next_) {
+    reset();
+    return false;
+  }
+  memcpy(logical_ + size_t(next_) * 19, frame.payload, frame.length);
+  ++next_;
+  if (next_ != 106) return false;
+  if (logical_[0] != 0x12 || logical_[1] != 0x40) {
+    reset();
+    return false;
+  }
+  for (uint8_t i = 0; i < 100; ++i) {
+    const uint8_t *record = logical_ + 2 + size_t(i) * 20;
+    if (record[0] != i || record[1] != 0 || record[2] != 0 || record[3] != 0) {
+      reset();
+      return false;
+    }
+    bool terminated = false;
+    for (size_t j = 0; j < 16; ++j) {
+      const uint8_t c = record[4 + j];
+      if (c == 0) terminated = true;
+      else if (terminated || c < 0x20) {
+        reset();
+        return false;
+      }
+    }
+  }
+  complete_ = true;
+  return true;
+}
+
+const char *NameDirectoryCollector::name(uint8_t index) const {
+  return complete_ && index < 100
+             ? reinterpret_cast<const char *>(logical_ + 2 + size_t(index) * 20 + 4)
+             : nullptr;
 }
 
 } // namespace stomp::pocket

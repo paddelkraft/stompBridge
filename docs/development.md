@@ -21,11 +21,16 @@ application session. It automatically sends read-only sync requests after
 USB descriptor identification and supports physical switch commands if
 deliberately uploaded. The check script compiles it without uploading.
 Its serial console reports `SYNC gen=N pending`, `confirmed preset=N` with
-block values, `failed reason=...`, or `interrupted by live command`. These
+the device-specific `slot=` label and block values, `failed reason=...`, or
+`interrupted by live command`. The confirmation line also reports whether
+names and effect models are supported; unavailable values are not substituted
+with made-up names. These
 lines report device readback; successful MIDI transmission alone does not
 produce `confirmed`.
-After GP-5 sync, a background request can report current effect model IDs and
-`PATCH NAMES gen=N count=100`, followed by `PATCH P00` through `PATCH P99`.
+After USB sync, a background request can report current effect model IDs and
+`PATCH NAMES gen=N count=100`. The console prints the actual slot labels:
+GP-5 `P00` through `P99`; Pocket Master `P01` through `P50` and `F01`
+through `F50`.
 The name list is printed only after every fragment and record index validates.
 For sync diagnosis, this target also prints up to 20 bounded `SYNC RX` frame
 summaries per USB attachment (`len`, first 16 MIDI bytes, last four bytes, and

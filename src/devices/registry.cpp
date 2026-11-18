@@ -14,7 +14,7 @@ constexpr DeviceDescriptor kDevices[] = {
     {"valeton_gp5", IdentityKind::UsbDescriptor, 0x84ef, 0x0184, 0,
      PluginKind::Gp5},
 };
-static_assert(sizeof(pocket::Plugin) <= 2048);
+static_assert(sizeof(pocket::Plugin) <= 3072);
 static_assert(sizeof(gp5::Plugin) <= 3072);
 } // namespace
 

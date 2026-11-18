@@ -32,7 +32,8 @@ is unavailable it plans ON. A readback timeout is a failure; it does not
 silently plan ON.
 `SessionOutput` accepts bounded owned messages, reports queue admission,
 submission, transport completion, and failure separately, and applies
-plugin-provided pacing. Live commands take priority over queued readback.
+plugin-provided pacing. Live commands take priority over queued readback, and
+two queue slots are reserved from background and readback work for live sends.
 Transport completion releases the send buffer; it is not a pedal receipt.
 A send failure or completion timeout stops that session's remaining output.
 The transport must copy submitted bytes until its completion callback. Only
@@ -43,6 +44,8 @@ Current contract limits are 100 presets, 16 blocks, 24-byte block labels,
 eight control ingress slots, and 16 gesture events. These are initial bounds
 based on the committed GP-5 SysEx assembly size plus headroom. Physical
 traffic and heap/stack measurements must validate them before cutover.
+Preset slot labels follow device capabilities: Pocket Master P01–P50 and
+F01–F50, GP-5 P00–P99. Slot labels do not claim preset-name feedback.
 
 `Switching` accepts numeric switch IDs, raw samples, and monotonic millisecond
 timestamps. It has no GPIO, MIDI, device, or browser dependencies. The
@@ -66,8 +69,10 @@ responses, or a changed preset; live commands remain available. Live control byt
 becomes assumed only after transport completion, and readback is scheduled for
 preset and block changes. Tuner state remains assumed because reliable tuner
 feedback is unavailable. GP-5 preset, block, effect-model, and 100-name
-readback are verified on the ESP32-S3 experimental target. Pocket Master has
-not had equivalent physical validation in that target.
+readback are verified on the ESP32-S3 experimental target. Pocket Master
+preset/block readback and the 100-name directory are also verified there.
+Its live-state model IDs are decoded separately from the directory, and
+current P01 Drive, Delay, and Reverb labels were checked against its screen.
 The compile-time registry currently contains only the two verified USB
 VID/PID identities. It constructs one plugin at a time in fixed storage and
 destroys it on replacement. BLE-MIDI service discovery alone cannot select a
@@ -98,11 +103,16 @@ session. Transmit completion carries the generation recorded at submission.
 The adapter still relies on the existing USB transport's SysEx assembly and
 has hardware-confirmed GP-5 preset and block readback across several boots
 and a reconnect. Two queued USB IN transfers captured all 106 fragments of
-the GP-5's 100-preset name response. The serial console now
+the GP-5 and Pocket Master 100-preset name responses. The serial console now
 reports sync start, confirmation with observed preset and block values, effect
 models, the complete preset-name list, or a
 failure reason. In-place retry after a synchronization fault and
 rapid same-descriptor reconnect detection remain open.
+Pocket Master hot unplug now releases the claimed MIDI interface before
+closing its device handle. The earlier root recovery abort was caused by three
+idle pipes left behind when close failed. Two hardware detach/reattach cycles
+recovered the root hub without reboot, then confirmed state and names in new
+session generations. Longer and faster reconnect sequences remain unverified.
 
 Verified BLE identity exchanges, BLE-MIDI framing,
 and `/api/v2` serialization are not implemented. The existing USB driver now exposes optional transmit-completion

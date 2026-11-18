@@ -109,11 +109,39 @@ void test_live_command_overtakes_queued_readback() {
   TEST_ASSERT_EQUAL_UINT8(0xf0, port.lastByte);
 }
 
+void test_background_and_readback_cannot_fill_live_reserve() {
+  FakePort port;
+  Events events;
+  SessionOutput output(port, events);
+  output.begin(7);
+  for (uint32_t i = 0; i < kOutputQueueCapacity -
+                                 kReservedLiveOutputSlots; ++i) {
+    auto background = request(0x90000001u + i, 7);
+    background.background = true;
+    background.bytes[0] = 0xf0;
+    TEST_ASSERT_EQUAL(Result::Accepted, output.enqueue(background));
+  }
+  auto readback = request(0x90000010u, 7);
+  TEST_ASSERT_EQUAL(Result::QueueFull, output.enqueue(readback));
+  TEST_ASSERT_EQUAL(Result::Accepted, output.enqueue(request(1, 7)));
+  TEST_ASSERT_EQUAL(Result::Accepted, output.enqueue(request(2, 7)));
+  TEST_ASSERT_EQUAL(Result::QueueFull, output.enqueue(request(3, 7)));
+  output.tick(0);
+  TEST_ASSERT_EQUAL_HEX8(0xb0, port.lastByte);
+  output.completed(7, true, 1);
+  output.tick(1);
+  TEST_ASSERT_EQUAL_HEX8(0xb0, port.lastByte);
+  output.completed(7, true, 2);
+  output.tick(2);
+  TEST_ASSERT_EQUAL_HEX8(0xf0, port.lastByte);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_submission_completion_and_plugin_pacing);
   RUN_TEST(test_timeout_blocks_replay_and_late_completion);
   RUN_TEST(test_disconnect_drops_queue_and_failed_submission_stops);
   RUN_TEST(test_live_command_overtakes_queued_readback);
+  RUN_TEST(test_background_and_readback_cannot_fill_live_reserve);
   return UNITY_END();
 }

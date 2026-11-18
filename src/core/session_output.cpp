@@ -23,6 +23,9 @@ Result SessionOutput::enqueue(const OutputRequest &request) {
   if (request.length == 0 || request.length > kMaxOutputMidi ||
       request.completionTimeoutMs == 0) return Result::Invalid;
   if (queued() >= kOutputQueueCapacity) return Result::QueueFull;
+  if ((request.background || request.operation >= 0x80000000u) &&
+      queued() >= kOutputQueueCapacity - kReservedLiveOutputSlots)
+    return Result::QueueFull;
   const bool queued = request.background
                           ? backgroundQueue_.push(request)
                           : request.operation >= 0x80000000u

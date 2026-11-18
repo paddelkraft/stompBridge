@@ -7,6 +7,7 @@ namespace stomp {
 
 constexpr size_t kMaxOutputMidi = 128;
 constexpr size_t kOutputQueueCapacity = 8;
+constexpr size_t kReservedLiveOutputSlots = 2;
 
 struct OutputRequest {
   OperationId operation = 0;
