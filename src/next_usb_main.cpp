@@ -5,6 +5,13 @@
 #include "core/preset_label.h"
 #include "core/switching.h"
 #include "usb_midi_transport.h"
+#ifdef STOMPBRIDGE_BLE_UI
+#include "platform/ui_ble_server.h"
+
+// Keep UI protocol processing on the Arduino loop task with enough stack
+// for frame handling and JSON formatting, including on a fresh build.
+size_t getArduinoLoopTaskStackSize() { return 16 * 1024; }
+#endif
 
 namespace {
 
@@ -298,7 +305,18 @@ UsbSendPort port(transport);
 PlatformClock clock;
 stomp::Application application(clock, port);
 UsbApplicationAdapter adapter(transport, port, application);
-stomp::Switching switching(stomp::GestureConfig{});
+stomp::GestureConfig gestureConfiguration() {
+  stomp::GestureConfig config{};
+#if defined(STOMPBRIDGE_BLE_UI) && !defined(STOMPBRIDGE_UI_SERIAL)
+  config.policy[9] = stomp::BindingPolicy::Deferred;
+#endif
+  return config;
+}
+
+stomp::Switching switching(gestureConfiguration());
+#ifdef STOMPBRIDGE_BLE_UI
+stomp::platform::UiBleServer uiBleServer;
+#endif
 uint32_t reportedSyncRevision = 0;
 uint32_t lastSyncHeartbeatAt = 0;
 stomp::SessionGeneration reportedModelGeneration = 0;
@@ -417,7 +435,19 @@ void pollSwitches() {
                      digitalRead(BoardPins::kSwitches[id]) == LOW, now);
   switching.tick(now);
   stomp::GestureEvent event;
-  while (switching.pop(event)) application.gesture(event);
+  while (switching.pop(event)) {
+#if defined(STOMPBRIDGE_BLE_UI) && !defined(STOMPBRIDGE_UI_SERIAL)
+    if (event.switches == (1u << 9) && event.kind == stomp::GestureKind::Hold) {
+      uiBleServer.toggleAuthorizationWindow();
+    } else if (event.switches == (1u << 9) && event.kind == stomp::GestureKind::Tap) {
+      application.gesture({stomp::GestureKind::Press, event.switches, event.atMs});
+    } else {
+      application.gesture(event);
+    }
+#else
+    application.gesture(event);
+#endif
+  }
 }
 
 } // namespace
@@ -432,7 +462,17 @@ void setup() {
     switching.sample(static_cast<uint8_t>(id),
                      digitalRead(BoardPins::kSwitches[id]) == LOW, now);
   }
+#ifdef STOMPBRIDGE_BLE_UI
+#ifdef STOMPBRIDGE_UI_SERIAL
+  Serial.println("StompBridge experimental USB + local UI serial target");
+#else
+  Serial.println("StompBridge experimental USB + BLE UI target");
+#endif
+  application.setObserver(&uiBleServer);
+  if (!uiBleServer.begin()) Serial.println("UI service startup failed");
+#else
   Serial.println("StompBridge replacement USB diagnostic");
+#endif
   transport.setVerboseTraffic(false);
   if (!adapter.begin()) Serial.println("Replacement USB adapter startup failed");
 }
@@ -440,6 +480,9 @@ void setup() {
 void loop() {
   pollSwitches();
   adapter.poll();
+#ifdef STOMPBRIDGE_BLE_UI
+  uiBleServer.poll(application);
+#endif
   reportSync();
   reportSyncHeartbeat();
   reportNamesAndModels();

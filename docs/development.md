@@ -13,6 +13,34 @@ guards, Python host regressions, native Unity tests, and embedded compiles.
 It does not upload or monitor hardware. Run individual stages with
 `./scripts/check-gp5-baseline`, `./scripts/pio test -e native`, and
 `./scripts/pio run -e esp32-s3-n16r8`.
+The experimental BLE UI contract tests can be run alone with
+`./scripts/pio test -e native -f test_native_ble_ui`. They cover framing, bounded
+ingress, epochs/generations, JSON decoding/encoding, and result history. The
+opt-in `./scripts/pio run -e stompbridge-next-ble-ui` build adds the USB pedal
+application, encrypted NimBLE GATT server, physical authorization window, and
+application-owned state/results. It does not upload or monitor hardware. The
+The browser transports are isolated in `ui/ble_transport.js` and
+`ui/serial_transport.js`; the screen renderer uses their shared event/command
+boundary alongside legacy HTTP v1 and explicit simulation.
+Web Bluetooth requires HTTPS and Chrome on macOS or Bluefy on iOS/iPad; client
+interoperability still needs a supervised hardware check.
+
+For local board-connected UI work without BLE or a deployed HTTPS origin:
+
+```sh
+./scripts/pio run -e stompbridge-next-ui-dev
+./scripts/pio run -e stompbridge-next-ui-dev -t upload
+./scripts/serve-ui-local
+```
+
+Open `http://localhost:8000` in Chromium, choose **USB DEV**, select the
+StompBridge USB-to-UART service port, and grant serial access. Keep the pedal on
+the separate USB host connector and close serial monitors before connecting.
+The USB DEV control appears on localhost when Web Serial is available.
+The serial adapter carries the same v1 frames; state snapshots, validation,
+admission, and pedal operations remain on the ESP32. This development-only
+mode bypasses BLE's physical authorization and encryption steps, tests the real
+board application and UI, and does not validate BLE transport or clients.
 The isolated `stompbridge-next-input` target compiles the new core and runs
 only an input diagnostic if deliberately uploaded. The check script compiles
 it; it does not upload any target.

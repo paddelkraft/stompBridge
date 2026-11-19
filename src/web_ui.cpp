@@ -40,6 +40,10 @@ bool WebUi::begin(StateProvider stateProvider, ActionHandler actionHandler,
     serveAsset(WebUiAssets::kStylesCss, WebUiAssets::kStylesCssLength,
                "text/css; charset=utf-8");
   });
+  server_.on("/ble_transport.js", HTTP_GET, [this]() {
+    serveAsset(WebUiAssets::kBleTransportJs, WebUiAssets::kBleTransportJsLength,
+               "application/javascript; charset=utf-8");
+  });
   server_.on("/app.js", HTTP_GET, [this]() {
     serveAsset(WebUiAssets::kAppJs, WebUiAssets::kAppJsLength,
                "application/javascript; charset=utf-8");

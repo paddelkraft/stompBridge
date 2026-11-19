@@ -16,6 +16,14 @@ struct Admission {
   OperationId operation = 0;
 };
 
+class ApplicationObserver {
+public:
+  virtual ~ApplicationObserver() = default;
+  virtual void operationChanged(OperationId operation,
+                                SessionGeneration generation,
+                                OperationPhase phase, Result result) = 0;
+};
+
 class Application final : public OutputObserver, public DeviceUpdateSink {
 public:
   Application(Clock &clock, MidiSendPort &port);
@@ -24,6 +32,7 @@ public:
   bool postMidi(SessionGeneration generation, const uint8_t *bytes, size_t length);
   bool postControl(const ControlEvent &event) { return ingress_.control(event); }
   void pump();
+  void setObserver(ApplicationObserver *observer) { observer_ = observer; }
   Admission submit(CommandKind kind, uint16_t target = 0, bool enabled = false);
   Admission gesture(const GestureEvent &event);
   void bank(int8_t direction);
@@ -59,6 +68,7 @@ private:
   bool deferredCommandActive_ = false;
   OperationId nextOperation_ = 0;
   bool togglePending_ = false;
+  ApplicationObserver *observer_ = nullptr;
   bool toggleTuner_ = false;
   uint16_t toggleTarget_ = 0;
   OperationId toggleOperation_ = 0;

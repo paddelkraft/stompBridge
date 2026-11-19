@@ -5,6 +5,8 @@
 
 namespace stomp {
 
+constexpr size_t kApplicationCommandQueueCapacity = 16;
+
 enum class PluginKind : uint8_t { PocketMaster, Gp5 };
 
 struct DeviceDescriptor {
@@ -46,7 +48,7 @@ private:
   const DeviceDescriptor *registry_;
   size_t registryCount_;
   const DeviceDescriptor *device_ = nullptr;
-  BoundedQueue<Command, 16> commands_;
+  BoundedQueue<Command, kApplicationCommandQueueCapacity> commands_;
   ConnectionPhase phase_ = ConnectionPhase::Disconnected;
   SessionGeneration generation_ = 0;
   uint32_t retryAt_ = 0;

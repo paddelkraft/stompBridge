@@ -56,6 +56,21 @@ equal-size overlaps. Immediate bindings emit at debounce completion.
 
 ## Next boundaries
 
+The BLE screen UI has a versioned contract in
+[`ble-ui-contract-v1.md`](./ble-ui-contract-v1.md). Its opt-in
+`stompbridge-next-ble-ui` target adds an encrypted NimBLE GATT service,
+callback-to-application event queue, bounded JSON boundary, UI epoch and pedal
+generation checks, and correlated operation results. The browser transport module subscribes, negotiates v1, reassembles bounded
+snapshots, and sends absolute preset/block/tuner requests; the screen renderer
+handles results, pending status, certainty, and stale-state recovery. `beginNimble()` is shared with the BLE-MIDI pedal
+transport so NimBLE is initialized only once. The target compiles but has not
+been exercised on a board or with Chrome/Bluefy; no client interoperability
+claim follows from compilation or native tests.
+The separate `stompbridge-next-ui-dev` target bypasses GATT and carries the same
+framed UI messages over the USB-to-UART service port for Chromium Web Serial on
+localhost. It reuses the application, state model, command parser, and result
+path, so it can exercise the live screen without claiming BLE coverage.
+
 The native `ConnectionManager` now checks unambiguous USB descriptor identity,
 rejects BLE-MIDI service-only identity, admits live commands during readback,
 and discards pending commands on loss or replacement. A readback failure leaves
@@ -84,8 +99,9 @@ live commands before or after synchronization. A queued live command waits
 for the plugin's previous send buffer to complete rather than being dropped.
 It drops old-generation input after replacement,
 invalidates certainty on receive loss, and applies confirmed preset readback
-to the local four-preset bank. The GPIO adapter is wired in the experimental
-USB target; the browser adapter remains open. A readback-first unknown toggle is held until confirmed state arrives;
+to the local four-preset bank. The GPIO adapter is wired in the experimental USB targets. The browser adapter
+is implemented for the experimental BLE GATT target, pending hardware/client
+validation. A readback-first unknown toggle is held until confirmed state arrives;
 its failure remains a typed operation result.
 After a receive fault, queued or late MIDI is not dispatched to the plugin
 until a new synchronization session is established.
@@ -114,8 +130,9 @@ idle pipes left behind when close failed. Two hardware detach/reattach cycles
 recovered the root hub without reboot, then confirmed state and names in new
 session generations. Longer and faster reconnect sequences remain unverified.
 
-Verified BLE identity exchanges, BLE-MIDI framing,
-and `/api/v2` serialization are not implemented. The existing USB driver now exposes optional transmit-completion
+Verified BLE identity exchanges, BLE-MIDI framing, and `/api/v2` serialization
+are not implemented. The BLE screen GATT is a separate UI control channel; it
+does not combine with BLE pedal transport or claim a BLE pedal session. The existing USB driver now exposes optional transmit-completion
 and receive-loss callbacks for the future application adapter; its hub,
 framing, and endpoint recovery paths are unchanged. The BLE driver has not
 been modified. A native USB-MIDI event decoder assembles complete SysEx,

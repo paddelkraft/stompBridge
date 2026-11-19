@@ -1,4 +1,5 @@
 #include "ble_midi_transport.h"
+#include "platform/nimble_owner.h"
 
 #include <algorithm>
 #include <cctype>
@@ -64,10 +65,7 @@ bool BleMidiTransport::begin() {
   if (initialized_) {
     return true;
   }
-  NimBLEDevice::init("StompBridge");
-  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
-  NimBLEDevice::setSecurityAuth(false, false, true);
-  NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+  if (!stomp::platform::beginNimble("StompBridge")) return false;
   scan_ = NimBLEDevice::getScan();
   scan_->setScanCallbacks(new MidiAdvertisementCallbacks(*this));
   scan_->setActiveScan(true);

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#090b0d" />
     <title>StompBridge — UI prototype</title>
-    <link rel="stylesheet" href="styles.css?v=5" />
+    <link rel="stylesheet" href="styles.css?v=9" />
   </head>
   <body>
     <main class="shell">
@@ -16,17 +16,20 @@
         </a>
 
         <div class="device-tools">
+          <button class="text-button" id="start-simulation" type="button">USE SIMULATOR</button>
           <label class="device-select">
             <span>DEVICE</span>
             <select id="device-profile" aria-label="Device profile">
+              <option value="unknown">No pedal identified</option>
               <option value="pocket-master">Sonicake Pocket Master</option>
               <option value="gp5">Valeton GP-5</option>
             </select>
           </label>
           <button class="connection" id="connection" type="button" aria-pressed="true">
             <span class="status-dot"></span>
-            <span id="connection-label">CONNECTED</span>
+            <span id="connection-label">CONNECT BLE</span>
           </button>
+          <button class="connection usb-dev" id="connect-usb-dev" type="button">USB DEV</button>
           <button class="log-toggle" id="toggle-log" type="button" aria-expanded="false" aria-controls="activity-panel">
             ACTIVITY <span id="log-count">2</span>
           </button>
@@ -41,13 +44,14 @@
           <small id="bank-range">P01 — P04</small>
         </div>
         <div class="current-preset">
-          <div>
-            <p class="eyebrow">CURRENT PATCH <span class="certainty confirmed">CONFIRMED</span></p>
-            <strong class="preset-number" id="preset-number">P01</strong>
-          </div>
-          <div class="preset-copy">
-            <h1 id="preset-name">Glass Horizon</h1>
-            <p id="preset-meta">Clean ambient · Slot A</p>
+          <div class="current-preset-content">
+            <p class="eyebrow">CURRENT PATCH <span class="certainty unknown" id="preset-certainty">UNKNOWN</span> <span class="certainty unknown" id="pedal-link-status">PEDAL UNKNOWN</span> <span class="certainty unknown" id="live-request-status" aria-live="polite">NO PENDING</span> <span class="certainty" id="stale-indicator" hidden>STALE</span></p>
+            <div class="preset-value-row">
+              <strong class="preset-number" id="preset-number">P01</strong>
+              <div class="preset-copy">
+                <h1 id="preset-name">Glass Horizon</h1>
+              </div>
+            </div>
           </div>
         </div>
         <button class="bank-step" id="bank-up" type="button" aria-label="Next bank">+</button>
@@ -118,8 +122,12 @@
           </div>
 
           <div class="signal-card">
-            <div><span class="pulse"></span><span>USB MIDI</span></div>
+            <div><span class="pulse"></span><span>USB PEDAL</span></div>
             <strong id="midi-status">ONLINE</strong>
+          </div>
+          <div class="signal-card sync-card">
+            <div><span>SYNC</span></div>
+            <strong id="sync-status">UNKNOWN</strong>
           </div>
 
           <ol class="event-log" id="event-log" aria-live="polite"></ol>
@@ -142,6 +150,7 @@
       </div>
     </div>
 
-    <script src="app.js?v=5"></script>
+    <script src="ble_transport.js?v=1"></script>
+    <script src="app.js?v=20"></script>
   </body>
 </html>

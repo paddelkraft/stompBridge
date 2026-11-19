@@ -92,6 +92,10 @@ void Application::pump() {
       if (result != Result::Accepted)
         model_.setOperation(deferredCommand_.operation, OperationPhase::Failed,
                             result);
+      if (result != Result::Accepted && observer_ != nullptr)
+        observer_->operationChanged(deferredCommand_.operation,
+                                    deferredCommand_.generation,
+                                    OperationPhase::Failed, result);
       deferredCommandActive_ = false;
     }
   }
@@ -202,6 +206,9 @@ void Application::outputEvent(const OutputEvent &event) {
   if (plugin_) plugin_->onOutput(event, clock_.nowMs());
   if (event.operation != 0 && event.operation < 0x80000000u)
     model_.setOperation(event.operation, event.phase, event.result);
+  if (event.operation != 0 && observer_ != nullptr)
+    observer_->operationChanged(event.operation, event.generation, event.phase,
+                                event.result);
 }
 
 void Application::publish(const DeviceUpdate &update) {

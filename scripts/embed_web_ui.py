@@ -15,6 +15,7 @@ OUTPUT = PROJECT_DIR / "include" / "web_ui_assets.h"
 ASSETS = (
     ("IndexHtml", PROJECT_DIR / "ui" / "index.html"),
     ("StylesCss", PROJECT_DIR / "ui" / "styles.css"),
+    ("BleTransportJs", PROJECT_DIR / "ui" / "ble_transport.js"),
     ("AppJs", PROJECT_DIR / "ui" / "app.js"),
 )
 
