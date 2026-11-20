@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#090b0d" />
+    <title>StompBridge — UI prototype</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="styles.css?v=9" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="StompBridge home">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span><strong>STOMP</strong> BRIDGE <small class="ui-version">UI v5</small></span>
+        </a>
+
+        <div class="device-tools">
+          <button class="text-button" id="start-simulation" type="button">USE SIMULATOR</button>
+          <label class="device-select">
+            <span>DEVICE</span>
+            <select id="device-profile" aria-label="Device profile">
+              <option value="unknown">No pedal identified</option>
+              <option value="pocket-master">Sonicake Pocket Master</option>
+              <option value="gp5">Valeton GP-5</option>
+            </select>
+          </label>
+          <button class="connection" id="connection" type="button" aria-pressed="true">
+            <span class="status-dot"></span>
+            <span id="connection-label">CONNECT BLE</span>
+          </button>
+          <button class="connection usb-dev" id="connect-usb-dev" type="button">USB DEV</button>
+          <button class="log-toggle" id="toggle-log" type="button" aria-expanded="false" aria-controls="activity-panel">
+            ACTIVITY <span id="log-count">2</span>
+          </button>
+        </div>
+      </header>
+
+      <section class="current-strip" aria-labelledby="preset-name">
+        <button class="bank-step" id="bank-down" type="button" aria-label="Previous bank">−</button>
+        <div class="bank-readout">
+          <span>BANK</span>
+          <strong id="bank-number">01</strong>
+          <small id="bank-range">P01 — P04</small>
+        </div>
+        <div class="current-preset">
+          <div class="current-preset-content">
+            <p class="eyebrow">CURRENT PATCH <span class="certainty unknown" id="preset-certainty">UNKNOWN</span> <span class="certainty unknown" id="pedal-link-status">PEDAL UNKNOWN</span> <span class="certainty unknown" id="live-request-status" aria-live="polite">NO PENDING</span> <span class="certainty" id="stale-indicator" hidden>STALE</span></p>
+            <div class="preset-value-row">
+              <strong class="preset-number" id="preset-number">P01</strong>
+              <div class="preset-copy">
+                <h1 id="preset-name">Glass Horizon</h1>
+              </div>
+            </div>
+          </div>
+        </div>
+        <button class="bank-step" id="bank-up" type="button" aria-label="Next bank">+</button>
+      </section>
+
+      <section class="workspace">
+        <div class="controls-panel">
+          <div class="control-row effects" aria-label="Effect controls">
+            <button class="effect active drive" type="button" data-effect="drive" data-key="1" aria-pressed="true">
+              <span class="effect-top"><span class="led"></span><kbd>1</kbd></span>
+              <span class="effect-icon" aria-hidden="true">
+                <svg viewBox="0 0 48 48" role="img">
+                  <path d="M5 31h7l4-14 7 22 7-30 5 22h8" />
+                  <path class="accent" d="M6 39h36" />
+                </svg>
+              </span>
+              <strong>DRIVE</strong>
+              <small>Warm boost</small>
+            </button>
+            <button class="effect delay" type="button" data-effect="delay" data-key="2" aria-pressed="false">
+              <span class="effect-top"><span class="led"></span><kbd>2</kbd></span>
+              <span class="effect-icon" aria-hidden="true">
+                <svg viewBox="0 0 48 48" role="img">
+                  <path d="M6 16h12c6 0 9 4 9 8s-3 8-9 8H9" />
+                  <path d="m13 27-5 5 5 5" />
+                  <path class="accent" d="M32 14v20M39 18v12" />
+                </svg>
+              </span>
+              <strong>DELAY</strong>
+              <small>Tape echo</small>
+            </button>
+            <button class="effect active reverb" type="button" data-effect="reverb" data-key="3" aria-pressed="true">
+              <span class="effect-top"><span class="led"></span><kbd>3</kbd></span>
+              <span class="effect-icon" aria-hidden="true">
+                <svg viewBox="0 0 48 48" role="img">
+                  <path d="M8 31c5-10 9-14 16-14s11 4 16 14" />
+                  <path d="M13 35c4-7 7-10 11-10s7 3 11 10" />
+                  <path class="accent" d="M19 38c2-4 3-5 5-5s3 1 5 5" />
+                </svg>
+              </span>
+              <strong>REVERB</strong>
+              <small>Wide hall</small>
+            </button>
+            <button class="effect utility" type="button" data-effect="tuner" data-key="T" aria-pressed="false">
+              <span class="effect-top"><span class="led"></span><kbd>T</kbd></span>
+              <span class="effect-icon" aria-hidden="true">
+                <svg viewBox="0 0 48 48" role="img">
+                  <path d="M8 31a17 17 0 0 1 32 0" />
+                  <path d="m24 29 8-11" />
+                  <path class="accent" d="M13 31v4M35 31v4M24 12v4" />
+                  <circle cx="24" cy="29" r="3" />
+                </svg>
+              </span>
+              <strong>TUNER</strong>
+              <small>Utility</small>
+            </button>
+          </div>
+          <div class="control-row presets" id="presets" aria-label="Preset slots"></div>
+        </div>
+
+        <aside class="activity-panel" id="activity-panel" hidden>
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">SYSTEM</p>
+              <h2>Activity</h2>
+            </div>
+            <button class="text-button" id="clear-log" type="button">CLEAR</button>
+          </div>
+
+          <div class="signal-card">
+            <div><span class="pulse"></span><span>USB PEDAL</span></div>
+            <strong id="midi-status">ONLINE</strong>
+          </div>
+          <div class="signal-card sync-card">
+            <div><span>SYNC</span></div>
+            <strong id="sync-status">UNKNOWN</strong>
+          </div>
+
+          <ol class="event-log" id="event-log" aria-live="polite"></ol>
+
+          <div class="legend">
+            <p><span class="certainty confirmed">CONFIRMED</span> Read back from pedal</p>
+            <p><span class="certainty assumed">ASSUMED</span> Sent, no readback available</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <div class="tuner-overlay" id="tuner-overlay" hidden>
+      <div class="tuner-display">
+        <p>INPUT NOTE</p>
+        <strong>E</strong>
+        <div class="tuner-meter"><i></i><i></i><i class="center"></i><i></i><i></i></div>
+        <span>−2 cents</span>
+        <button id="close-tuner" type="button">EXIT TUNER <kbd>T</kbd></button>
+      </div>
+    </div>
+
+    <script src="ble_transport.js?v=4"></script>
+    <script src="app.js?v=22"></script>
+  </body>
+</html>
