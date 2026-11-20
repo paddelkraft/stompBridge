@@ -38,7 +38,10 @@ def generate() -> None:
         "",
     ]
     for symbol, path in ASSETS:
-        compressed = gzip.compress(path.read_bytes(), compresslevel=9, mtime=0)
+        data = path.read_bytes()
+        if symbol == "IndexHtml":
+            data = data.replace(b'<html lang="en">', b'<html lang="en" data-device-hosted>', 1)
+        compressed = gzip.compress(data, compresslevel=9, mtime=0)
         sections.extend(
             (
                 f"inline constexpr uint8_t k{symbol}[] PROGMEM = {{",

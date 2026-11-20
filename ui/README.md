@@ -6,14 +6,16 @@ does not create simulated command success. The prototype simulates device
 selection, bank and preset navigation, effect toggles, tuner mode, state
 certainty, and an activity log.
 
-Open `index.html` directly, or serve the folder locally:
+Serve the UI on the computer running the browser:
 
 ```sh
-python3 -m http.server 8080 --directory ui
+./scripts/serve-ui-local
 ```
 
-Then visit <http://localhost:8080>. Localhost is treated as a secure context
-for browser development.
+Then visit <http://localhost:8000>. Chromium treats loopback HTTP as a secure
+context. For BLE on Linux, verify that `navigator.bluetooth` is present and
+that the Bluetooth adapter is powered. Chromium's Experimental Web Platform
+features flag may be required.
 
 Keyboard shortcuts: `1`/`2`/`3` toggle Drive, Delay, and Reverb; `T` opens the
 tuner; `A`–`D` select presets; Left/Right changes bank.
@@ -25,9 +27,10 @@ uses `serial_transport.js` and Web Serial to connect locally to the opt-in
 It carries the same framed UI protocol, while state, command validation, and
 pedal operations stay on the ESP32. Pending commands are shown beside the
 current patch, and lost/late results are surfaced as unknown outcomes followed
-by a fresh state request; commands are never replayed automatically. Serve the static `ui/` assets from HTTPS
-while the screen stays on its normal Wi-Fi connection; do not load the page from
-BLE. The physical 60-second authorization window must be opened on the bridge
+by a fresh state request; commands are never replayed automatically. For the desktop BLE test, flash `stompbridge-next-ble-ui` and
+keep the pedal on the USB host connector. For the later phone test, host the
+static `ui/` assets on trusted HTTPS while the phone uses its usual network.
+The physical 60-second authorization window must be opened on the bridge
 with a utility-switch long hold before a writable session. This path is a proof
 implementation: Chrome on macOS and Bluefy on iOS/iPad still need supervised
 hardware validation of bonding, encryption, notifications, and reconnects.
@@ -46,3 +49,8 @@ simulation; failed BLE or HTTP connections never fall back to simulated state.
 PlatformIO runs `scripts/embed_web_ui.py` before each firmware build to gzip
 these files into `include/web_ui_assets.h`; no separate filesystem upload is
 needed.
+
+During an active BLE session, the UI requests a screen wake lock where the
+browser supports it. Check **Activity** for the result. The lock releases on
+disconnect or when the page is hidden. Returning to the visible page requests
+it again if BLE is still connected.

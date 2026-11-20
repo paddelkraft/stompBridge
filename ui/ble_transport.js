@@ -26,11 +26,23 @@
     }
 
     async connect() {
-      if (!window.isSecureContext || !navigator.bluetooth)
-        throw new Error('Web Bluetooth needs Chrome on macOS or Bluefy on iOS/iPad from HTTPS.');
-      this.device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [SERVICE] }], optionalServices: [SERVICE],
-      });
+      if (!window.isSecureContext)
+        throw new Error('Open the UI from http://localhost on this computer or from HTTPS.');
+      if (!navigator.bluetooth?.requestDevice)
+        throw new Error('Web Bluetooth is unavailable. Try Chrome on desktop or Bluefy on iPhone/iPad.');
+      try {
+        this.device = await navigator.bluetooth.requestDevice({
+          // Chromium matches name prefixes after discovery, avoiding the
+          // native scan filter on Linux while keeping the chooser scoped.
+          filters: [{ services: [SERVICE] }, { namePrefix: 'StompBridge UI' }],
+          optionalServices: [SERVICE],
+        });
+      } catch (error) {
+        if (error?.message?.includes('Web Bluetooth API globally disabled')) {
+          throw new Error('Web Bluetooth is disabled in Brave. Enable Web Bluetooth API in brave://flags and relaunch.');
+        }
+        throw error;
+      }
       this.device.addEventListener('gattserverdisconnected', this.onDisconnected);
       const server = await this.device.gatt.connect();
       const service = await server.getPrimaryService(SERVICE);

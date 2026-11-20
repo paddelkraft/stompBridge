@@ -2,8 +2,9 @@
 
 Status: v1 contract implemented as an opt-in experimental firmware target and
 Web Bluetooth adapter. Native protocol tests and target compilation pass. The
-firmware has not been flashed, and Chrome/Bluefy interoperability, bonding,
-notifications, pedal behavior, and authorization timing remain unverified.
+firmware has been flashed and BlueZ discovered the UI service. Browser
+interoperability, pairing, notifications, live commands, and authorization
+timing remain open. See the [manual check record](ble-ui-manual-checks.md).
 
 ## Semantic JSON messages
 
@@ -191,11 +192,11 @@ message fails before any fragment is emitted.
 
 The screen requires a deliberate physical authorization action on the bridge.
 On the experimental target this is a long hold of the utility switch (the
-tenth switch, firmware index 9). It opens a 60-second writable window
-for one UI connection. Expiration closes
-that connection; a new connection or reconnect requires another physical
-authorization. A physical revoke closes the active UI link and invalidates its
-epoch. Authorization is bridge-side policy, separate from pedal BLE security.
+tenth switch, firmware index 9). It opens a 60-second window for one UI peer to
+connect, encrypt, and bond. Once established, the session continues after the
+window expires. A disconnect requires a new physical authorization before
+reconnecting. A utility-switch hold while connected revokes the active UI link
+and invalidates its epoch. Authorization is bridge-side policy, separate from pedal BLE security.
 Service UUID, advertised name, browser chooser approval, and protocol
 negotiation are not authorization.
 

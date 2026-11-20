@@ -211,10 +211,20 @@ select { min-width: 185px; padding-block: 8px; }
 .effect strong { font-size: clamp(20px, 2.6vw, 25px); line-height: 1; letter-spacing: .025em; }
 .effect small { margin-top: 6px; color: #f1f4f6; font-size: clamp(15px, 1.9vw, 19px); font-weight: 700; line-height: 1.15; }
 .effect kbd { padding: 2px 5px; font-size: 8px; }
-.preset { position: relative; align-items: flex-end; padding: 14px 15px; background: linear-gradient(150deg, #171b1f, #101316); }
-.preset .slot { position: absolute; top: 12px; left: 14px; width: 38px; height: 38px; font-size: 17px; }
-.preset strong { overflow: hidden; max-width: 100%; font-size: clamp(20px, 2.6vw, 25px); line-height: 1.05; white-space: nowrap; text-overflow: ellipsis; }
-.preset small { margin-top: 6px; color: #b5bdc4; font-size: clamp(12px, 1.55vw, 15px); line-height: 1.2; }
+.preset { padding: 14px 15px; background: linear-gradient(150deg, #171b1f, #101316); }
+.preset-slot { display: grid; justify-items: center; flex: 0 0 auto; gap: 4px; }
+.preset .slot { width: 38px; height: 38px; font-size: 17px; }
+.preset strong {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: clamp(20px, 2.6vw, 25px);
+  line-height: 1.1;
+}
+.preset small { margin: 0; color: #b5bdc4; font-size: clamp(12px, 1.55vw, 15px); line-height: 1.2; }
 .preset.active {
   border: 2px solid var(--lime);
   background: linear-gradient(145deg, rgba(200,255,71,.22), #111519 76%);
@@ -229,29 +239,72 @@ select { min-width: 185px; padding-block: 8px; }
 .activity-panel[hidden] { display: none; }
 .activity-panel .event-log { height: min(250px, 38vh); }
 
-@media (max-width: 680px) {
-  .shell { padding-inline: 10px; }
-  .topbar { gap: 8px; }
+/* Compact controls fit the space left by the browser chrome. */
+@media (max-width: 680px), (max-height: 500px) and (orientation: landscape) {
+  .shell {
+    padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  }
+  /* Leave enough scroll range to move the connection row above the viewport. */
+  .shell:has(#device-profile:disabled) {
+    min-height: calc(100dvh + 50px + max(6px, env(safe-area-inset-top)));
+  }
+  .topbar { align-items: center; gap: 6px; min-height: 48px; padding-bottom: 4px; }
   .brand > span:last-child { display: none; }
-  select { width: 142px; min-width: 0; font-size: 10px; }
-  .connection { padding-inline: 8px; }
-  #connection-label { display: none; }
-  .log-toggle { padding-inline: 8px; font-size: 0; }
-  .log-toggle span { margin: 0; font-size: 8px; }
-  .current-strip { grid-template-columns: 40px 104px minmax(0, 1fr) 40px; }
-  .current-strip .bank-readout { padding-inline: 9px; gap: 2px 6px; }
-  .current-strip .bank-readout strong { font-size: 22px; }
+  .device-tools { flex-flow: row wrap; align-items: center; justify-content: flex-end; gap: 4px; }
+  .device-tools .connection, .log-toggle { min-height: 44px; padding-inline: 8px; }
+  .device-select:has(select:disabled), #start-simulation:disabled { display: none; }
+  #start-simulation { order: 1; min-height: 36px; }
+  .device-select { order: 2; }
+  .device-select select { width: 130px; min-width: 0; font-size: 12px; }
+  .log-toggle span { margin-left: 2px; }
+  .current-strip { grid-template-columns: 50px 74px minmax(0, 1fr) 50px; gap: 5px; padding: 6px 0; }
+  .current-strip .bank-step, .current-strip .bank-readout, .current-preset { min-height: 62px; }
+  .current-strip .bank-readout { padding: 5px; gap: 3px; }
+  .current-strip .bank-readout strong { font-size: 20px; }
   .current-strip .bank-readout small { display: none; }
-  .current-preset { gap: 10px; padding-inline: 11px; }
-  .preset-copy { padding-left: 10px; }
-  .certainty { display: none; }
-  .effects, .presets { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .effect { min-height: 0; }
+  .current-preset { padding: 6px 8px; }
+  .current-preset .eyebrow { letter-spacing: .06em; }
+  .current-preset .certainty { margin-left: 2px; padding: 2px 3px; letter-spacing: 0; }
+  #live-request-status:not(.assumed) { display: none; }
+  .preset-value-row { gap: 6px; }
+  .current-preset .preset-number { font-size: clamp(26px, 7.2vw, 38px); }
+  .preset-copy h1 { font-size: clamp(19px, 5.5vw, 27px); }
+  .controls-panel { padding-top: 6px; }
+  .control-row { gap: 6px; }
+  .control-row + .control-row { margin-top: 6px; }
+  .effect, .preset { height: auto; min-height: clamp(70px, 14.4dvh, 108px); border-radius: 10px; }
+  .effect { display: grid; align-content: center; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 5px; padding: 6px 8px; }
+  .effect::after, .effect-icon, .effect kbd { display: none; }
+  .effect-top { grid-column: 2; grid-row: 1; justify-content: end; }
+  .effect strong { grid-column: 1; grid-row: 1; font-size: clamp(15px, 4.3vw, 20px); line-height: 1.08; overflow-wrap: anywhere; }
+  .effect small { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.15; }
+  .preset { align-items: center; gap: 7px; padding: 6px 8px; }
+  .preset .slot { width: 28px; height: 28px; font-size: 13px; }
+  .preset strong { font-size: clamp(15px, 4.1vw, 20px); line-height: 1.12; }
+  .preset small { font-size: 12px; }
+  .activity-panel {
+    top: max(54px, env(safe-area-inset-top));
+    right: max(10px, env(safe-area-inset-right));
+    width: min(340px, calc(100% - 20px));
+    max-height: calc(100dvh - 54px - max(8px, env(safe-area-inset-bottom)));
+    padding: 12px;
+  }
+  .activity-panel .event-log { height: auto; max-height: 42dvh; }
+  .tuner-overlay { overflow: auto; padding: 12px; }
+  .tuner-display > strong { font-size: clamp(48px, 24dvh, 100px); }
+  .tuner-meter { margin-block: 12px; }
+  .tuner-display button { min-height: 44px; margin-top: 16px; }
 }
 
-@media (max-width: 480px) and (orientation: portrait) {
-  .current-strip { grid-template-columns: 40px 1fr 40px; }
-  .current-strip .bank-readout { display: none; }
+@media (max-width: 540px) and (orientation: portrait) {
+  .topbar { display: block; }
+  .topbar .brand { display: none; }
+  .device-tools { justify-content: space-between; }
+  .current-strip { grid-template-columns: 50px minmax(0, 1fr) 50px; }
+  .current-preset { grid-column: 1 / -1; grid-row: 1; }
+  .current-strip .bank-step, .current-strip .bank-readout { grid-row: 2; min-height: 52px; }
+  .current-strip .bank-readout { display: flex; justify-content: center; gap: 6px; }
+  .current-strip .bank-readout small { display: inline; margin-left: 6px; }
   .control-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .effect, .preset { height: 106px; }
 }

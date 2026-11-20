@@ -7,11 +7,11 @@ namespace {
 bool initialized = false;
 }
 
-bool beginNimble(const char *deviceName) {
+bool beginNimble(const char *deviceName, bool bonding) {
   if (initialized) return true;
   NimBLEDevice::init(deviceName);
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
-  NimBLEDevice::setSecurityAuth(false, false, true);
+  NimBLEDevice::setSecurityAuth(bonding, false, true);
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
   initialized = true;
   return true;

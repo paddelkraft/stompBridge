@@ -69,7 +69,7 @@ private:
   void prepareNextOutbound(const ReadSnapshot &snapshot, const char *deviceId);
   void sendOutboundFragment(uint32_t nowMs);
   void refreshProtocolInfo(SessionGeneration generation);
-  void closeConnection(bool restartAdvertising);
+  void closeConnection();
   void handleAuthorizationExpiry(uint32_t nowMs);
 #ifdef STOMPBRIDGE_UI_SERIAL
   void pollSerialDevelopmentLink(Application &application);
@@ -104,6 +104,9 @@ private:
   uint32_t lostResults_ = 0;
   bool resultGapPending_ = false;
   uint32_t observedRevision_ = 0;
+#ifndef STOMPBRIDGE_UI_SERIAL
+  uint32_t reportedSnapshotNamesRevision_ = 0;
+#endif
   uint16_t connectionHandle_ = BLE_HS_CONN_HANDLE_NONE;
   uint16_t attPayload_ = 20;
   SessionGeneration pedalGeneration_ = 0;

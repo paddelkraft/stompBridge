@@ -103,8 +103,11 @@ function renderPresets() {
     button.dataset.index = index;
     button.disabled = !state.connected;
     button.innerHTML = `
-      <span class="slot">${'ABCD'[slot]}</span>
-      <span><strong></strong><small></small></span>`;
+      <span class="preset-slot">
+        <span class="slot">${'ABCD'[slot]}</span>
+        <small></small>
+      </span>
+      <strong></strong>`;
     button.querySelector('strong').textContent = cardName(index, slot);
     button.querySelector('small').textContent = presetLabel(index);
     button.addEventListener('click', () => selectPreset(index));
@@ -157,7 +160,13 @@ function render() {
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', active);
     button.disabled = !state.connected;
-    button.querySelector('small').textContent = state.effectNames[button.dataset.effect];
+    const category = effect.toUpperCase();
+    const name = state.effectNames[effect];
+    const showLiveModel = state.ble && effect !== 'tuner';
+    button.querySelector('strong').textContent = showLiveModel && name ? name : category;
+    button.querySelector('small').textContent = showLiveModel
+      ? (name ? category : 'Model unavailable')
+      : name;
   });
   $('#bank-down').disabled = !state.connected;
   $('#bank-up').disabled = !state.connected;
@@ -293,11 +302,43 @@ async function syncState() {
   }
 }
 
+let liveConnectionPending = false;
 let bleClient = null;
 let bleTransport = null;
 let bleHelloResolve = null;
 let bleRefreshTimer = 0;
 let bleFreshnessTimer = 0;
+
+async function keepBleScreenAwake() {
+  const client = bleClient;
+  if (!client?.negotiated || state.usbDev || document.visibilityState !== 'visible' ||
+      client.wakeLockPending || (client.wakeLock && !client.wakeLock.released)) return;
+  if (!navigator.wakeLock?.request) {
+    log('Screen wake lock unavailable', 'This browser may let the screen sleep.');
+    return;
+  }
+  client.wakeLockPending = true;
+  try {
+    const lock = await navigator.wakeLock.request('screen');
+    if (bleClient !== client || document.visibilityState !== 'visible') {
+      await lock.release();
+      return;
+    }
+    client.wakeLock = lock;
+    log('Screen wake lock active', 'The screen can stay awake while this BLE session is visible.');
+  } catch (error) {
+    if (bleClient === client) log('Screen wake lock unavailable', error.message);
+  } finally {
+    client.wakeLockPending = false;
+  }
+}
+
+function releaseBleScreenWakeLock() {
+  const lock = bleClient?.wakeLock;
+  if (lock && !lock.released) lock.release().catch(() => {});
+}
+
+document.addEventListener('visibilitychange', keepBleScreenAwake);
 
 function updatePendingStatus() {
   const indicator = $('#live-request-status');
@@ -311,6 +352,7 @@ function updatePendingStatus() {
 }
 
 function disconnectBle() {
+  releaseBleScreenWakeLock();
   window.clearInterval(bleRefreshTimer);
   window.clearInterval(bleFreshnessTimer);
   const transport = bleTransport;
@@ -333,6 +375,7 @@ function disconnectBle() {
 
 function bleDisconnected() {
   if (!bleClient) return;
+  releaseBleScreenWakeLock();
   window.clearInterval(bleRefreshTimer);
   window.clearInterval(bleFreshnessTimer);
   const transport = bleTransport;
@@ -354,6 +397,12 @@ function bleDisconnected() {
 }
 
 async function connectLive(Transport, transportName, usbDev = false) {
+  if (liveConnectionPending) return;
+  liveConnectionPending = true;
+  $('#connection').disabled = true;
+  $('#connect-usb-dev').disabled = true;
+  $('#start-simulation').disabled = true;
+  $('#connection-label').textContent = `CONNECTING ${usbDev ? 'USB' : 'BLE'}…`;
   try {
     bleTransport = new Transport({
       onMessage: handleBleMessage,
@@ -399,6 +448,7 @@ async function connectLive(Transport, transportName, usbDev = false) {
     });
     await writeBleMessage(1, { v: 1, kind: 'hello', min: 1, max: 1, epoch: client.epoch });
     await hello;
+    keepBleScreenAwake();
     await sendBleCommand({ kind: 'snapshot' }, true);
     bleRefreshTimer = window.setInterval(() => sendBleCommand({ kind: 'snapshot' }, true), 8000);
     bleFreshnessTimer = window.setInterval(() => {
@@ -438,6 +488,12 @@ async function connectLive(Transport, transportName, usbDev = false) {
       ? 'No serial port was selected. Choose the board’s USB Single Serial (CH340) port in the browser chooser; canceling leaves the UI disconnected.'
       : error?.message || String(error);
     log(`${transportName} connection failed`, detail);
+    if ($('#activity-panel').hidden) $('#toggle-log').click();
+  } finally {
+    liveConnectionPending = false;
+    $('#connection').disabled = false;
+    $('#connect-usb-dev').disabled = false;
+    renderConnection();
   }
 }
 
@@ -598,6 +654,7 @@ function applyBleSnapshot(snapshot) {
   for (const name of ['drive', 'delay', 'reverb']) {
     state.effects[name] = false;
     state.effectCertainty[name] = 'unknown';
+    state.effectNames[name] = '';
   }
   for (const block of snapshot.blocks || []) {
     const capability = state.bleBlocks.find((item) => item.id === block.id);
@@ -605,7 +662,8 @@ function applyBleSnapshot(snapshot) {
     if (!name) continue;
     state.effects[name] = !!block.enabled;
     state.effectCertainty[name] = block.certainty || 'unknown';
-    state.effectNames[name] = block.effect_name || capability.label || name;
+    const model = block.model_certainty === 'unknown' ? '' : block.effect_name?.trim();
+    state.effectNames[name] = model || '';
   }
   state.effects.tuner = !!snapshot.tuner?.enabled;
   state.effectCertainty.tuner = snapshot.tuner?.certainty || 'unknown';
@@ -613,7 +671,9 @@ function applyBleSnapshot(snapshot) {
   if (!snapshot.capabilities?.tuner) state.effectCertainty.tuner = 'unknown';
   $('#tuner-overlay').hidden = !state.effects.tuner || state.effectCertainty.tuner === 'unknown';
   render();
-  log('Live state received', `Revision ${snapshot.revision} · ${pedalName()} · pedal ${snapshot.pedal?.phase || 'unknown'} · sync ${snapshot.pedal?.sync || 'unknown'}`);
+  const models = (snapshot.blocks || []).map((block) =>
+    `${block.id} ${block.effect_name?.trim() || '(no model)'} [${block.model_certainty || 'unknown'}]`);
+  log('Live state received', `Revision ${snapshot.revision} · ${pedalName()} · pedal ${state.pedalPhase} · sync ${state.syncPhase}${models.length ? ` · Models ${models.join(', ')}` : ''}`);
 }
 
 function sendBleAction(action) {
@@ -695,7 +755,7 @@ document.addEventListener('keydown', (event) => {
 
 async function start() {
   render();
-  if (await syncState()) {
+  if (document.documentElement.hasAttribute('data-device-hosted') && await syncState()) {
     log('Device UI online', `Revision ${state.revision} · HTTP v1 state`);
     window.setInterval(syncState, 2000);
   } else {

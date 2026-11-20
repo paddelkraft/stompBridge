@@ -76,7 +76,7 @@ bool UiBleServer::begin() {
   Serial.println("UI-SERIAL:READY");
   return events_ != nullptr;
 #else
-  if (!beginNimble("StompBridge")) return false;
+  if (!beginNimble("StompBridge", /*bonding=*/true)) return false;
   events_ = xQueueCreate(kEventCapacity, sizeof(Event));
   if (events_ == nullptr) return false;
   server_ = NimBLEDevice::createServer();
@@ -84,6 +84,8 @@ bool UiBleServer::begin() {
   serverCallbacks_ = new ServerCallbacks(*this);
   characteristicCallbacks_ = new CharacteristicCallbacks(*this);
   server_->setCallbacks(serverCallbacks_, false);
+  // Restart after the link is actually down, including rejected connections.
+  server_->advertiseOnDisconnect(true);
   NimBLEService *service = server_->createService(kServiceUuid);
   if (service == nullptr) return false;
   protocolInfo_ = service->createCharacteristic(
@@ -100,19 +102,21 @@ bool UiBleServer::begin() {
   eventsCharacteristic_->setCallbacks(characteristicCallbacks_);
   if (!server_->start()) return false;
   NimBLEAdvertising *advertising = NimBLEDevice::getAdvertising();
-  advertising->addServiceUUID(kServiceUuid);
-  advertising->setName("StompBridge UI");
-  advertising->start();
+  // Keep the service UUID in the advertisement for the browser filter.
+  // The full local name needs the extra space in the scan response.
+  advertising->enableScanResponse(true);
+  if (!advertising->addServiceUUID(kServiceUuid) ||
+      !advertising->setName("StompBridge UI")) return false;
   refreshProtocolInfo(0);
-  return true;
+  return advertising->start();
 #endif
 }
 
 void UiBleServer::toggleAuthorizationWindow() {
   const uint32_t now = millis();
-  if (accessWindowOpen()) {
+  if (connected_ || accessWindowOpen()) {
     accessUntil_ = 0;
-    closeConnection(true);
+    closeConnection();
     refreshProtocolInfo(pedalGeneration_);
     Serial.println("BLE UI access revoked");
     return;
@@ -153,7 +157,7 @@ void UiBleServer::refreshProtocolInfo(SessionGeneration generation) {
   protocolInfo_->setValue(info);
 }
 
-void UiBleServer::closeConnection(bool restartAdvertising) {
+void UiBleServer::closeConnection() {
   if (connected_ && server_) server_->disconnect(connectionHandle_);
   connected_ = false; encrypted_ = false; bonded_ = false; subscribed_ = false;
   negotiated_ = false; freshSnapshotRequested_ = false;
@@ -165,19 +169,17 @@ void UiBleServer::closeConnection(bool restartAdvertising) {
   resultQueue_.clear();
   controlQueue_.clear();
   resultGapPending_ = false;
-  if (restartAdvertising) {
-#ifndef STOMPBRIDGE_UI_SERIAL
-    NimBLEDevice::startAdvertising();
-#endif
-  }
 }
 
 void UiBleServer::handleAuthorizationExpiry(uint32_t nowMs) {
   if (accessUntil_ == 0 || static_cast<int32_t>(accessUntil_ - nowMs) > 0) return;
   accessUntil_ = 0;
-  closeConnection(false);
+  // The window bounds connection setup. An encrypted, bonded peer keeps
+  // its session until it disconnects or the utility switch revokes access.
+  if (connected_ && (!encrypted_ || !bonded_)) closeConnection();
   refreshProtocolInfo(pedalGeneration_);
-  Serial.println("BLE UI access window expired");
+  Serial.println(connected_ ? "BLE UI access window expired; session retained"
+                            : "BLE UI access window expired");
 }
 
 void UiBleServer::prepareSnapshot(const ReadSnapshot &snapshot, const char *deviceId) {
@@ -197,6 +199,18 @@ void UiBleServer::prepareSnapshot(const ReadSnapshot &snapshot, const char *devi
 #endif
     noteLostResult(); return;
   }
+#ifndef STOMPBRIDGE_UI_SERIAL
+  if (reportedSnapshotNamesRevision_ != snapshot.namesRevision) {
+    reportedSnapshotNamesRevision_ = snapshot.namesRevision;
+    for (uint8_t i = 0; i < snapshot.capabilities.blockCount; ++i) {
+      const auto &block = snapshot.blocks[i];
+      Serial.printf("BLE UI snapshot revision=%lu block=%u model=%s\n",
+                    static_cast<unsigned long>(snapshot.revision),
+                    static_cast<unsigned>(block.id),
+                    block.modelName[0] ? block.modelName : "(unavailable)");
+    }
+  }
+#endif
   outbound_.active = true; outbound_.type = ble_ui::MessageType::Snapshot;
   outbound_.length = static_cast<uint16_t>(length); outbound_.index = 0;
   outbound_.transfer = static_cast<uint16_t>(++nextTransfer_);
@@ -422,7 +436,7 @@ void UiBleServer::handleSerialDevelopmentLine(const char *line, size_t length,
       refreshProtocolInfo(application.generation());
       return;
     }
-    if (serialDevelopmentConnected_) closeConnection(false);
+    if (serialDevelopmentConnected_) closeConnection();
     serialDevelopmentConnected_ = true;
     serialSessionToken_ = token;
     connected_ = encrypted_ = bonded_ = subscribed_ = true;
@@ -449,7 +463,7 @@ void UiBleServer::handleSerialDevelopmentLine(const char *line, size_t length,
     if (token != serialSessionToken_) return;
     serialDevelopmentConnected_ = false;
     serialSessionToken_ = 0;
-    closeConnection(false);
+    closeConnection();
     Serial.println("UI-SERIAL:CLOSED");
     return;
   }
@@ -534,7 +548,7 @@ void UiBleServer::poll(Application &application) {
   const uint16_t overflowHandle = overflowHandle_.exchange(BLE_HS_CONN_HANDLE_NONE);
   if (overflowHandle != BLE_HS_CONN_HANDLE_NONE) {
     accessUntil_ = 0;
-    if (connected_ && connectionHandle_ == overflowHandle) closeConnection(true);
+    if (connected_ && connectionHandle_ == overflowHandle) closeConnection();
     else if (server_) server_->disconnect(overflowHandle);
     refreshProtocolInfo(application.generation());
     Serial.println("BLE UI callback queue overflow; connection closed");
@@ -561,21 +575,31 @@ void UiBleServer::poll(Application &application) {
         connected_ = true; connectionHandle_ = event.handle;
         ++epoch_; if (epoch_ == 0) ++epoch_;
         lastRequestId_ = 0;
+#ifndef STOMPBRIDGE_UI_SERIAL
+        reportedSnapshotNamesRevision_ = 0;
+#endif
         encrypted_ = event.encrypted; bonded_ = event.bonded;
         attPayload_ = event.mtu > 3 ? event.mtu - 3 : 20;
         if (attPayload_ > ble_ui::kMaxAttPayload) attPayload_ = ble_ui::kMaxAttPayload;
         ingress_.connect(epoch_, application.generation());
         refreshProtocolInfo(application.generation());
-        if (!encrypted_) NimBLEDevice::startSecurity(connectionHandle_);
+        if (!encrypted_) {
+          int securityError = 0;
+          if (!NimBLEDevice::startSecurity(connectionHandle_, &securityError)) {
+            Serial.printf("BLE UI could not start pairing: %d\n", securityError);
+            closeConnection();
+          }
+        }
       } else if (event.handle == connectionHandle_) {
         if (event.kind == EventKind::Disconnect) {
           accessUntil_ = 0;
-          closeConnection(true);
+          closeConnection();
         } else if (event.kind == EventKind::Security) {
           encrypted_ = event.encrypted; bonded_ = event.bonded;
+          Serial.printf("BLE UI security encrypted=%d bonded=%d\n", encrypted_, bonded_);
           if (!encrypted_ || !bonded_) {
             accessUntil_ = 0;
-            closeConnection(false);
+            closeConnection();
             refreshProtocolInfo(pedalGeneration_);
           }
         } else if (event.kind == EventKind::Subscribe) {
