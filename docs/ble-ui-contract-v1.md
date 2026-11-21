@@ -201,12 +201,10 @@ Service UUID, advertised name, browser chooser approval, and protocol
 negotiation are not authorization.
 
 The first proof environment must be controlled and physically supervised.
-Whether Chrome on macOS and Bluefy support the chosen NimBLE encryption,
-bonding, and permission behavior has not been validated. Do not recommend
-deployment beyond the proof environment until both clients have verified
-encryption/bonding compatibility, revoke behavior, and reconnect behavior.
-Linux requires a separately named browser/distro/adapter/BlueZ qualification.
-Ordinary Safari and Firefox are not supported Web Bluetooth clients.
+Bluefy on iPhone established an encrypted, bonded session and exercised
+control with a GP-5. Physical revoke, reconnect, and Chrome on macOS remain
+open. Linux browser discovery also remains unresolved in the recorded trials.
+See the [manual check record](ble-ui-manual-checks.md) for client evidence.
 
 ## Native codec verification
 

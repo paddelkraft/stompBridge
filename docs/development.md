@@ -18,12 +18,12 @@ The experimental BLE UI contract tests can be run alone with
 ingress, epochs/generations, JSON decoding/encoding, and result history. The
 opt-in `./scripts/pio run -e stompbridge-next-ble-ui` build adds the USB pedal
 application, encrypted NimBLE GATT server, physical authorization window, and
-application-owned state/results. It does not upload or monitor hardware. The
-The browser transports are isolated in `ui/ble_transport.js` and
-`ui/serial_transport.js`; the screen renderer uses their shared event/command
-boundary alongside legacy HTTP v1 and explicit simulation.
-Web Bluetooth requires HTTPS and Chrome on macOS or Bluefy on iOS/iPad; client
-interoperability still needs a supervised hardware check.
+application-owned state and results. The browser transport modules in
+`ui/ble_transport.js` and `ui/serial_transport.js` share a command and event
+boundary.
+Use the [phone screen guide](../ui/README.md) for Bluefy and HTTPS setup.
+The [manual check record](ble-ui-manual-checks.md) tracks the iPhone proof
+and browser-specific results.
 
 For local board-connected UI work without BLE or a deployed HTTPS origin:
 

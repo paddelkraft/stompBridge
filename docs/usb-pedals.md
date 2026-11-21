@@ -4,38 +4,21 @@ The ESP32-S3 is the USB host. The pedal plugs into the controller's USB-A
 host port. A computer on the separate USB-to-UART service port is optional
 during normal operation and useful for flashing and serial logs.
 
-## Wiring and power
-
-| USB-A host signal | Connection |
-| --- | --- |
-| VBUS | Controller's externally supplied 5 V host rail |
-| GND | Common ground with the ESP32 and the external supply |
-| D− | ESP32-S3 GPIO19 |
-| D+ | ESP32-S3 GPIO20 |
-
-Use a known data cable. On the tested board, the computer on the service
-port powered the ESP32 but did not provide usable VBUS at the USB-A port.
-The powerbank supplied the host rail through the separate power connection.
-The Pocket Master could run on its battery and still needed host VBUS to
-present its USB connection. Its charging indication helped confirm that
-host power had reached it.
-
-Measure VBUS against GND at the USB-A port with the pedal connected if
-enumeration fails. This setup read about 5.5 V unloaded and 5.43 V loaded.
-Those are observations, not target voltages. A multimeter reading can miss
-brief dips. Continuity checks can confirm pin mapping and shorts with power
-off, but do not verify the USB signals during enumeration.
+The [hardware guide](hardware.md) covers the host connector pinout and
+external 5 V feed. Use a USB data cable. If enumeration fails, measure
+VBUS against GND at the host port with the pedal connected. A multimeter may
+miss brief dips during enumeration. With power off, check for shorts and
+verify the data pin mapping.
 
 ## Firmware and build
 
-Use the default `esp32-s3-n16r8` environment. It builds Arduino as an
-ESP-IDF component so the USB host library is compiled with
-[`sdkconfig.defaults`](../sdkconfig.defaults). The earlier Arduino-only
-build linked a precompiled USB library with 30 ms reset recovery and no
-custom hub power-on delay. Editing the project defaults alone could not
-change those precompiled settings.
+Use `stompbridge-next-usb` for serial bring-up or `stompbridge-next-ble-ui`
+to add the phone screen. Both build Arduino as an ESP-IDF component so the
+USB host library uses [`sdkconfig.defaults`](../sdkconfig.defaults). The
+original Arduino-only experiments linked a precompiled USB library with
+fixed hub timing.
 
-| Setting | Value in the generated plugin build |
+| Setting | Value in the generated USB builds |
 | --- | --- |
 | USB hubs and multilevel hubs | Enabled |
 | Control transfer buffer | 512 bytes |
@@ -46,7 +29,8 @@ change those precompiled settings.
 | Set-address recovery | 20 ms |
 | Downstream reset attempts | 1 (component default; confirmed in generated configs) |
 
-Check the generated `sdkconfig.esp32-s3-n16r8` after changing build settings.
+Check the generated `sdkconfig.stompbridge-next-usb` or
+`sdkconfig.stompbridge-next-ble-ui` after changing build settings.
 The control transfer buffer serves USB enumeration and is separate from the
 MIDI transfer and SysEx buffers.
 
@@ -57,9 +41,8 @@ The earlier successful hub enumeration was observed with the generated value
 at one, so the project uses that confirmed component default.
 
 ```sh
-./scripts/pio run -e esp32-s3-n16r8
-./scripts/pio run -e esp32-s3-n16r8 -t upload
-./scripts/pio device monitor -b 115200
+./scripts/pio run -e stompbridge-next-usb -t upload
+./scripts/pio device monitor -e stompbridge-next-usb -b 115200
 ```
 
 Close any serial monitor before uploading and select the USB-to-UART port
@@ -75,16 +58,20 @@ ESP-IDF diagnostic that temporarily replaces the controller app if flashed.
 1. Supply host VBUS, power on the pedal, and connect it to the controller's
    USB-A port. Monitor the ESP32 service port at 115200 baud.
 2. Look for `USB-MIDI host ready`, an attach event, then `USB-MIDI connected`
-   and `Selected pedal plugin`. The firmware matches VID/PID automatically.
+   with the USB identity. The firmware matches VID/PID automatically.
 
    | Pedal | VID:PID |
    | --- | --- |
    | Sonicake Pocket Master | `84EF:0284` |
    | Valeton GP-5 | `84EF:0184` |
 
-3. In the first bank, press B, then A, then D. Check the pedal display for
-   P02, P01, then P04. The Pocket Master sends preset commands as CC1 with
-   values 2, 1, and 4. The GP-5 uses its own SysEx preset commands.
+3. Confirm that serial reports `SYNC gen=N confirmed` and the current
+   preset and block states. From the first bank, press B, then A, then D.
+   Expect P02, P01, P04 on Pocket Master and P01, P00, P03 on GP-5.
+   If the initial readback selected another bank, use **BANK−** to reach
+   the first bank before testing.
+4. Try Drive, Delay, and Reverb and compare the confirmed state in serial
+   with the pedal display. The preset directory loads in the background.
 
 | Serial symptom | What to check |
 | --- | --- |
@@ -93,8 +80,8 @@ ESP-IDF diagnostic that temporarily replaces the controller app if flashed.
 | Root port status changes, then no external-port event | Root attachment is visible in `USB root port` logs. Check host VBUS and whether the pedal's internal hub appears in the `HUB`/`EXT_HUB` logs. |
 | `EXT_PORT` reset or `ENUM` short-device-descriptor error | This is downstream hub enumeration. The first short descriptor transaction occurs before the full device/configuration descriptors, MIDI interface claim, or MIDI traffic. Check VBUS and the compiled hub timing values. |
 | `USB full device descriptor` appears but configuration retrieval fails | Enumeration passed the device descriptor stage; investigate configuration descriptor parsing and size. The USB control transfer maximum is 512 bytes. |
-| MIDI interface claim succeeds but no preset changes | Enumeration and interface claim completed. Check MIDI traffic and the selected pedal plugin/protocol. The 512-byte SysEx receive buffer only affects MIDI responses after the interface is active. |
-| MIDI connected, one switch appears dead | Try another switch, then hold the suspect switch and look for `PRESSED` and `RELEASED`. A is GPIO9. The input needs 25 ms of stable contact. A preset log shows successful submission, so check the pedal display for the result. |
+| MIDI interface claim succeeds but no preset changes | Enumeration and interface claim completed. Check MIDI traffic and the selected pedal plugin/protocol. Inspect SysEx receive errors after the interface is active. |
+| MIDI connected, one switch appears dead | Try another switch. Check the suspect switch with the input diagnostic and pin map in the hardware guide. The input needs 25 ms of stable contact. |
 
 For a controlled serial capture, boot the controller with its service cable
 connected and the host powerbank supplying VBUS. Wait for `USB-MIDI host
@@ -105,11 +92,15 @@ root-port transition through either `USB-MIDI connected` or a repeated
 descriptor stages, and downstream reset recovery.
 
 For a quick recovery, keep host VBUS supplied, reconnect the pedal, and
-watch for plugin selection. If it still fails, reset the controller with the
-powered pedal attached and capture the startup log. A controller reset with
+watch for a fresh USB identity and sync result. If it still fails, reset the
+controller with the powered pedal attached and capture the startup log. A controller reset with
 the Pocket Master connected did restore enumeration during testing.
 
-## Hardware validation
+## Earlier hardware captures
+
+These captures include the original default firmware and intermediate USB
+diagnostics. For current results on the replacement USB core, see the
+[support matrix](support-matrix.md).
 
 - **Pocket Master:** The standalone diagnostic reached the pedal's internal
   hub and sent a preset change once host VBUS was present. The combined

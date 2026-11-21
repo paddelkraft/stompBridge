@@ -1,142 +1,111 @@
-# Replacement architecture under construction
+# StompBridge architecture
 
-The default production firmware still builds from the existing `src/main.cpp`
-and plugin paths. `stompbridge-next-input` is a separate, switch-only
-diagnostic build that compiles the new core for the ESP32-S3. It sends no pedal
-commands and serves no UI. `stompbridge-next-usb` is a separate experimental
-USB session build. It automatically identifies a USB pedal by its descriptor,
-sends read-only synchronization requests, and routes board switches through
-the new application. It has no UI. MIDI output, GP-5 synchronization, effect
-models, and the 100-preset name list have hardware captures.
-This keeps known-good firmware available during the replacement.
+The POC runs in the `stompbridge-next-ble-ui` environment. The ESP32 owns the
+active pedal session and provides two ways to control it, the physical
+switches and a browser screen. Both send the same kinds of commands into the
+firmware. The pedal is the source for confirmed preset and effect state.
 
-## Ownership and contracts
+## System connections
 
-The application task will own connection phase, session generation, device
-plugins, operation scheduling, and `ReadModel`. Platform callbacks will copy
-MIDI into `OwnedIngress` and enqueue control events. The platform must protect
-producer calls with a short critical section; `OwnedIngress` itself is a
-single-context queue and is not thread-safe. Control events are drained before
-MIDI. A disconnect clears pending MIDI and controls and closes that generation.
-Overflow clears the MIDI queue and exposes `ReceiveLost`, requiring parser
-reset and resynchronization. A later generation rejects stale callbacks.
+```mermaid
+flowchart LR
+    Host["Static HTTPS host"] -->|"HTML, CSS, JavaScript"| Phone["iPhone running Bluefy"]
+    Phone <-->|"BLE GATT: commands, results, snapshots"| Bridge["StompBridge ESP32-S3"]
+    Switches["10 momentary footswitches"] -->|"GPIO"| Bridge
+    Bridge <-->|"USB MIDI: live commands and readback"| Pedal["Pocket Master or GP-5"]
+    Service["Service computer (optional)"] <-->|"USB-to-UART: flash and logs"| Bridge
+    Power["External 5 V supply"] -->|"USB host VBUS"| Pedal
+```
 
-`src/core/contracts.h` defines semantic commands and typed results. `Accepted`
-means admitted; it does not mean transport completion or observed pedal state.
-`Certainty::Confirmed` requires verified device feedback. Submission or
-transport completion may establish `Assumed` only. The read model increments
-its revision when an observable value changes and invalidates certainty on
-disconnect. Local bank selection remains separate from pedal-observed preset.
-`planToggle` requests readback for an unknown value when supported. If readback
-is unavailable it plans ON. A readback timeout is a failure; it does not
-silently plan ON.
-`SessionOutput` accepts bounded owned messages, reports queue admission,
-submission, transport completion, and failure separately, and applies
-plugin-provided pacing. Live commands take priority over queued readback, and
-two queue slots are reserved from background and readback work for live sends.
-Transport completion releases the send buffer; it is not a pedal receipt.
-A send failure or completion timeout stops that session's remaining output.
-The transport must copy submitted bytes until its completion callback. Only
-verified device feedback may mark an operation observed.
+The phone talks to a custom GATT service on the ESP32. The ESP32 is the USB
+host for the effects pedal. The HTTPS server only delivers the page assets.
+The [hardware guide](hardware.md) maps these links to connectors, power, and
+GPIOs.
 
-Current contract limits are 100 presets, 16 blocks, 24-byte block labels,
-17-byte preset names, 2048-byte owned MIDI messages, eight MIDI ingress slots,
-eight control ingress slots, and 16 gesture events. These are initial bounds
-based on the committed GP-5 SysEx assembly size plus headroom. Physical
-traffic and heap/stack measurements must validate them before cutover.
-Preset slot labels follow device capabilities: Pocket Master P01–P50 and
-F01–F50, GP-5 P00–P99. Slot labels do not claim preset-name feedback.
+## Firmware boundaries
 
-`Switching` accepts numeric switch IDs, raw samples, and monotonic millisecond
-timestamps. It has no GPIO, MIDI, device, or browser dependencies. The
-application binds its typed events to semantic commands. Default timings
-are 25 ms debounce, 500 ms hold, and 60 ms chord window. A chord waits for its
-window, chooses the largest completed mask, and uses explicit priority for
-equal-size overlaps. Immediate bindings emit at debounce completion.
+```mermaid
+flowchart LR
+    Pins["GPIO samples"] --> Switches["Switching: debounce and gestures"]
+    Switches --> App["Application: session and command ownership"]
+    Browser["Browser screen"] <-->|"Framed v1 messages"| UI["BLE or dev serial adapter"]
+    UI -->|"Typed commands"| App
+    App -->|"Snapshots and operation results"| UI
+    App <-->|"Commands and typed feedback"| Plugin["Active pedal plugin"]
+    Plugin --> Output["Paced SessionOutput"]
+    Output --> USB["USB MIDI transport"]
+    USB -->|"MIDI ingress and send events"| App
+    App <-->|"Revisioned state"| State["ReadModel"]
+```
 
-## Next boundaries
+| Area | Start reading here |
+| --- | --- |
+| GPIO sampling and USB event handoff | [next_usb_main.cpp](../src/next_usb_main.cpp) and [switching.cpp](../src/core/switching.cpp) |
+| Application and state ownership | [application.cpp](../src/core/application.cpp), [contracts.h](../src/core/contracts.h), and [read_model.cpp](../src/core/read_model.cpp) |
+| USB identity and device-specific MIDI | [registry.cpp](../src/devices/registry.cpp), [Pocket Master plugin](../src/devices/pocket_master/plugin.cpp), and [GP-5 plugin](../src/devices/gp5/plugin.cpp) |
+| USB transport and output pacing | [usb_midi_transport.cpp](../src/usb_midi_transport.cpp) and [session_output.cpp](../src/core/session_output.cpp) |
+| GATT, command validation, and snapshot framing | [ui_ble_server.cpp](../src/platform/ui_ble_server.cpp), [live_ingress.cpp](../src/ui/live_ingress.cpp), and the [BLE v1 contract](ble-ui-contract-v1.md) |
+| Browser rendering and transport | [app.js](../ui/app.js), [ble_transport.js](../ui/ble_transport.js), and [serial_transport.js](../ui/serial_transport.js) |
 
-The BLE screen UI has a versioned contract in
-[`ble-ui-contract-v1.md`](./ble-ui-contract-v1.md). Its opt-in
-`stompbridge-next-ble-ui` target adds an encrypted NimBLE GATT service,
-callback-to-application event queue, bounded JSON boundary, UI epoch and pedal
-generation checks, and correlated operation results. The browser transport module subscribes, negotiates v1, reassembles bounded
-snapshots, and sends absolute preset/block/tuner requests; the screen renderer
-handles results, pending status, certainty, and stale-state recovery. `beginNimble()` is shared with the BLE-MIDI pedal
-transport so NimBLE is initialized only once. The target compiles but has not
-been exercised on a board or with Chrome/Bluefy; no client interoperability
-claim follows from compilation or native tests.
-The separate `stompbridge-next-ui-dev` target bypasses GATT and carries the same
-framed UI messages over the USB-to-UART service port for Chromium Web Serial on
-localhost. It reuses the application, state model, command parser, and result
-path, so it can exercise the live screen without claiming BLE coverage.
+The USB adapter passes copied MIDI and transport events through a bounded
+queue. The application loop owns the active plugin, output schedule, and
+read model. A session generation identifies the current USB attachment.
+Disconnect or receive loss invalidates state certainty, and old-generation
+events are discarded. BLE tracks a separate UI epoch so stale browser
+commands cannot cross into a new UI session. The output queue gives live
+commands priority over background requests such as fetching preset names.
 
-The native `ConnectionManager` now checks unambiguous USB descriptor identity,
-rejects BLE-MIDI service-only identity, admits live commands during readback,
-and discards pending commands on loss or replacement. A readback failure leaves
-an identified MIDI session in `Degraded`, while a transport fault uses bounded
-retries.
-Native Pocket Master and GP-5 plugin instances now use a typed update sink and
-the session output queue. Pocket Master requires matching preset reads around
-26 ordered live-state fragments; GP-5 requires matching preset reads around an
-exact host-shaped patch-state fragment. Both stay unready on timeout, malformed
-responses, or a changed preset; live commands remain available. Live control bytes are fixture-tested. State
-becomes assumed only after transport completion, and readback is scheduled for
-preset and block changes. Tuner state remains assumed because reliable tuner
-feedback is unavailable. GP-5 preset, block, effect-model, and 100-name
-readback are verified on the ESP32-S3 experimental target. Pocket Master
-preset/block readback and the 100-name directory are also verified there.
-Its live-state model IDs are decoded separately from the directory, and
-current P01 Drive, Delay, and Reverb labels were checked against its screen.
-The compile-time registry currently contains only the two verified USB
-VID/PID identities. It constructs one plugin at a time in fixed storage and
-destroys it on replacement. BLE-MIDI service discovery alone cannot select a
-plugin.
+## How two-way USB sync works
 
-The native `Application` is the sole owner of connection state, plugin
-instances, output scheduling, and the read model. It dispatches supported
-live commands before or after synchronization. A queued live command waits
-for the plugin's previous send buffer to complete rather than being dropped.
-It drops old-generation input after replacement,
-invalidates certainty on receive loss, and applies confirmed preset readback
-to the local four-preset bank. The GPIO adapter is wired in the experimental USB targets. The browser adapter
-is implemented for the experimental BLE GATT target, pending hardware/client
-validation. A readback-first unknown toggle is held until confirmed state arrives;
-its failure remains a typed operation result.
-After a receive fault, queued or late MIDI is not dispatched to the plugin
-until a new synchronization session is established.
+1. The USB registry matches the pedal's VID/PID and instantiates its plugin.
+   Initial sync reads the current preset, reads its live effect state, then
+   reads the preset again. Matching preset replies bracket the state read. Malformed or incomplete
+   responses leave sync unconfirmed.
+2. Each plugin validates its own protocol. Pocket Master assembles an ordered
+   live-state response. The GP-5 decodes a patch-state fragment for on/off
+   values and assembles separate fragments for model IDs. Each plugin fetches
+   the 100-entry preset-name directory in the background and publishes names
+   after validating the complete directory.
+3. A footswitch or the phone submits a semantic action such as selecting
+   an absolute preset or setting an effect. The plugin turns that action
+   into device-specific MIDI and requests state after preset and block
+   changes.
+4. The application publishes verified feedback to the read model. Confirmed
+   preset state aligns the local four-preset bank. The browser receives a
+   new snapshot and renders the preset, effects, and certainty.
 
-The USB experimental target scans ten GPIO switches before each USB poll.
-Current bindings use immediate press after debounce: bank down/up remain
-local; Drive, Delay, Reverb, and Tuner use toggles; A-D select absolute presets
-from the local bank. Unknown toggles follow their own readback policy.
-The USB target owns a bounded 32-event FreeRTOS queue. Host-task
-callbacks copy complete MIDI messages or completion/loss notices into it; the
-application loop drains each event into `Application` and pumps it before the
-next event. A full queue gives the application task up to 25 ms to drain it;
-remaining overflow faults the current
-session. Transmit completion carries the generation recorded at submission.
-The adapter still relies on the existing USB transport's SysEx assembly and
-has hardware-confirmed GP-5 preset and block readback across several boots
-and a reconnect. Two queued USB IN transfers captured all 106 fragments of
-the GP-5 and Pocket Master 100-preset name responses. The serial console now
-reports sync start, confirmation with observed preset and block values, effect
-models, the complete preset-name list, or a
-failure reason. In-place retry after a synchronization fault and
-rapid same-descriptor reconnect detection remain open.
-Pocket Master hot unplug now releases the claimed MIDI interface before
-closing its device handle. The earlier root recovery abort was caused by three
-idle pipes left behind when close failed. Two hardware detach/reattach cycles
-recovered the root hub without reboot, then confirmed state and names in new
-session generations. Longer and faster reconnect sequences remain unverified.
+```mermaid
+sequenceDiagram
+    participant UI as Bluefy screen
+    participant Bridge as ESP32 application and plugin
+    participant Pedal as USB effects pedal
+    UI->>Bridge: Select absolute preset
+    Bridge-->>UI: Command admitted
+    Bridge->>Pedal: Device-specific live MIDI command
+    Bridge->>Pedal: Read current preset and patch state
+    Pedal-->>Bridge: Preset and effect replies
+    Bridge-->>UI: Operation result and updated state snapshot
+```
 
-Verified BLE identity exchanges, BLE-MIDI framing, and `/api/v2` serialization
-are not implemented. The BLE screen GATT is a separate UI control channel; it
-does not combine with BLE pedal transport or claim a BLE pedal session. The existing USB driver now exposes optional transmit-completion
-and receive-loss callbacks for the future application adapter; its hub,
-framing, and endpoint recovery paths are unchanged. The BLE driver has not
-been modified. A native USB-MIDI event decoder assembles complete SysEx,
-passes channel messages and interleaved realtime events, and discards partial
-state after receive loss. It is not yet wired to the ESP-IDF USB callback.
-GP-5 readback now has captured hardware evidence in the experimental target;
-the replacement will not enter Ready after an unverified timeout.
+**Accepted** means the command entered the application. **Assumed** means
+the transport completed a change whose state has yet to be verified.
+**Confirmed** requires matching device feedback. **Unknown** covers values
+currently lacking usable state. The tuner remains assumed after a successful
+send, since the plugins lack reliable tuner readback.
+
+## Build on the design
+
+- Bring up switches, USB enumeration, and pedal readback independently with
+  `stompbridge-next-input` and `stompbridge-next-usb` before adding a screen.
+- For a new pedal, start with a verified USB descriptor and read-only request
+  and response captures. Implement the device-specific plugin and capabilities
+  behind the existing commands. Check readback against the pedal display over
+  fresh boots, live changes, and reconnects.
+- For another screen client, start with the [BLE v1 contract](ble-ui-contract-v1.md).
+  Keep the browser's pending results and certainty tied to what the controller
+  reports. The [USB development path](development.md) can exercise the same
+  state and command path from a desktop.
+
+The [support matrix](support-matrix.md) records which combinations were
+demonstrated. The [USB parity audit](usb-parity-matrix.md) compares the earlier
+default firmware with the replacement USB core.

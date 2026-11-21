@@ -1,229 +1,103 @@
 # StompBridge
 
-StompBridge is a two-way MIDI foot controller built around a battery-powered,
-10-footswitch ESP32-S3. It sends live performance controls and reads pedal
-state back for synchronization. Initial target devices are the Sonicake
-Pocket Master and Valeton GP-5.
+StompBridge is a ten-switch MIDI foot controller built around an ESP32-S3.
+It controls a Sonicake Pocket Master or a Valeton GP-5 over USB and reads the
+pedal's state back. An iPhone running Bluefy can serve as the controller's
+screen and touch interface over Bluetooth Low Energy.
 
-The current firmware combines the debounced switch diagnostic with selectable
-BLE-MIDI and USB-MIDI transports. Input and pedal mapping code depend only on
-the shared `MidiTransport` interface, so transport selection does not change
-the generated MIDI messages. The default firmware uses USB-MIDI host mode and selects the Pocket Master
-or GP-5 plugin using the connected pedal’s USB ID. The firmware sends only
-live-performance commands and read-only synchronization requests; it contains
-no preset-save or editor-write commands.
+## Why this project
+Im a software guy that wanted to try out embedded development with AI
+i have two sons that are into music and have bought multiple pedals and midi controllers that never really work as good as you want them to because the midi controller does not know the effect units state
+.
+I saw other projects where people had 
+* Built midi controllers
+* Built custom patch editors that use Web bluetoth
 
-## HTML UI prototype
+and thought that the combo of a Stomp state aware midi foot controller with the ability to use an external screen was a fun and potentially usefull project to pursue.
 
-An interactive, dependency-free control surface prototype lives in [`ui/`](ui/).
-Open `ui/index.html` directly or run:
+the goal was to use the small budget stomps as if they were one of their Larger more expensive siblings.
 
-```sh
-python3 -m http.server 8080 --directory ui
-```
+## What the proof of concept does
 
-The same UI is embedded into the ESP32 firmware as gzip-compressed assets. On
-startup the controller creates a board-specific WPA2 network and prints its
-credentials to the serial monitor:
+| Part | Demonstrated behavior |
+| --- | --- |
+| Foot controller | Two bank switches, four preset switches, three effect switches, and a utility switch for the tuner and Bluetooth access. |
+| Sonicake Pocket Master | USB preset selection and Drive, Delay, and Reverb control with confirmed readback. The board read all 100 preset names (P01–P50 and F01–F50) and decoded current effect models. |
+| Valeton GP-5 | USB preset selection and Drive, Delay, and Reverb control with confirmed readback. The board read all 100 preset names (P00–P99) and decoded current effect models. |
+| Phone screen | Bluefy on iPhone exercised live control with a GP-5. The board logged an encrypted, bonded session that stayed connected after the 60-second pairing window. |
 
-```sh
-./scripts/pio run --target upload
-./scripts/pio device monitor
-```
+The controller identifies one attached pedal at a time by its USB descriptor.
+A bench test swapped between the two models without rebooting the controller,
+and each new USB session synchronized. Two-way sync means the bridge sends live
+commands and reads back what the pedal reports. Preset and effect changes
+initiated on the bridge trigger readback. Continuous mirroring of every change
+made on the pedal itself remains unverified, and tuner state is assumed because
+neither pedal provides reliable tuner readback in this implementation. See the
+[hardware evidence and limits](docs/support-matrix.md).
 
-Connect a phone or tablet to the printed `StompBridge-xxxx` network, then open
-<http://192.168.4.1/>. The UI reads live controller state and sends semantic
-actions through the same bounded queue used by the physical footswitches. UI
-source changes are embedded automatically on the next PlatformIO build.
+## Reproduce the POC
 
-## Computer-hosted USB prototype
+1. Wire the switches and the powered USB host port using the
+   [hardware build guide](docs/hardware.md).
+2. Set up PlatformIO and flash the BLE screen target through the board's
+   separate USB-to-UART service port.
 
-While the controller's protected USB-host hardware is being built, a computer
-can host both connections:
+   ```sh
+   ./scripts/setup-dev
+   ./scripts/pio run -e stompbridge-next-ble-ui -t upload
+   ./scripts/pio device monitor -e stompbridge-next-ble-ui -b 115200
+   ```
 
-```text
-footswitches -> ESP32 USB-UART -> host app -> Pocket Master USB-MIDI
-                                      ^             |
-                                      +-- state <---+
-```
+3. Supply host VBUS and connect either pedal with a USB data cable. Look for
+   its USB identity and a `SYNC` confirmation in the serial log. Press A or D
+   to change presets, then try Drive, Delay, and Reverb. Compare the pedal
+   display with the confirmed state in the log. The
+   [USB bring-up guide](docs/usb-pedals.md) covers enumeration and recovery.
+4. Open the hosted UI in Bluefy and hold **UTILITY** to authorize the phone.
+   Follow the [phone screen guide](ui/README.md) for pairing, using your own
+   HTTPS host, and checks to run on your setup.
 
-This keeps both standard MIDI control and confirmed pedal-state reads on USB;
-BLE remains available for other uses. The prototype contains no preset-save,
-rename, import, or other persistent-write commands.
+## Firmware paths
 
-Set up its isolated Python environment:
+| PlatformIO environment | Use |
+| --- | --- |
+| `stompbridge-next-ble-ui` | Full POC with USB pedal control, two-way readback, and the BLE phone screen. |
+| `stompbridge-next-usb` | USB pedal and footswitch bring-up with serial logging. |
+| `stompbridge-next-ui-dev` | Desktop UI development over Web Serial with a real USB pedal. |
+| `stompbridge-next-input` | Switch-only diagnostic for wiring and debounce. |
+| `esp32-s3-n16r8` | PlatformIO default. Earlier firmware with an ESP32-hosted Wi-Fi UI. |
 
-```sh
-./scripts/setup-host
-```
+## Project guide
 
-With the Pocket Master connected by USB and other MIDI editors closed, list
-the ALSA card and raw-MIDI device:
+- [Hardware](docs/hardware.md) covers the enclosure files, switch pinout, USB host wiring, and first power-up.
+- [Bill of materials](docs/bom.md) lists what to source for one controller and what to have ready for testing.
+- [Architecture](docs/architecture.md) shows how a switch press or phone command becomes MIDI and how confirmed pedal state returns to the screen.
+- [Development](docs/development.md) covers local checks and the USB development UI.
+- [Earlier prototypes](docs/legacy-prototypes.md) covers the ESP32 Wi-Fi interface, computer-hosted USB bridge, and BLE-MIDI experiments.
 
-```sh
-./scripts/midimaster-host ports
-```
+## Protocol acknowledgments
 
-On Linux, the account must have access to ALSA devices. If the command reports
-`Permission denied`, add the account to the `audio` group and then sign out and
-back in:
+Thanks to the projects that helped us understand the two pedals' MIDI protocols.
 
-```sh
-sudo usermod -aG audio "$USER"
-```
+- **Pocket Master Interoperability Guide**, by klotznick, documented the
+  hardware-tested USB SysEx requests and response layouts used to read the
+  current preset, live effect state, and preset directory.
+  [Pocket Master Interoperability Guide](https://github.com/klotznick/pocket-master-interoperability-guide)
+- **SonicMaster**, by Skyggedans and contributors, was a research reference
+  for Pocket Master protocol framing over USB MIDI and BLE.
+  [SonicMaster](https://github.com/Skyggedans/SonicMaster)
+- **GP-5 Web Controller**, by Helvecio Neto and contributors, was a reference
+  for the GP-5 MIDI CC map and SysEx messages. StompBridge checked USB readback
+  on its own GP-5. [GP-5 Web Controller](https://github.com/helvecioneto/gp5-wc) ·
+  [StompBridge GP-5 hardware capture](docs/gp5-patch-readout-2026-11-17.md)
+- **pocket-master-mcp**, by voronkovd and contributors, supplied the Pocket
+  Master effect-model ID-to-name mapping. That project credits **PocketEdit**,
+  by suckyble and contributors, as the source for its model data.
+  [pocket-master-mcp](https://github.com/voronkovd/pocket-master-mcp#credits-and-license) ·
+  [PocketEdit](https://github.com/suckyble/PocketEdit)
 
-For a temporary test that lasts only until the pedal is disconnected, grant an
-ACL to the currently enumerated endpoint instead:
+## License
 
-```sh
-sudo setfacl -m u:"$USER":rw /dev/snd/midiC2D0
-```
-
-Perform a read-only firmware/current-preset/live-state check:
-
-```sh
-./scripts/midimaster-host read-state --midi-device /dev/snd/midiC2D0
-```
-
-For a Valeton GP-5, select its isolated device profile:
-
-```sh
-./scripts/midimaster-host read-state --device-profile gp5 \
-  --midi-device /dev/snd/midiC2D0
-./scripts/midimaster-host run --device-profile gp5 --serial /dev/ttyACM0 \
-  --midi-device /dev/snd/midiC2D0
-```
-
-The GP-5 profile reads its current preset and patch bitmap over USB. Its
-separate mapping uses CC0 for absolute presets, CC50/56/57 for Drive/Delay/
-Reverb, and CC58 for the tuner. It contains no preset-save/editor writes.
-Hardware validation on a GP-5 confirmed P01-P08 absolute preset selection and
-Drive/Delay/Reverb switching with USB state readback. CC58 visibly controls the
-tuner, whose state remains locally assumed because no reliable readback has
-been identified.
-
-Run the footswitch bridge, substituting the exact port names printed above:
-
-```sh
-./scripts/midimaster-host run --serial /dev/ttyACM0 \
-  --midi-device /dev/snd/midiC2D0
-```
-
-The host maps A-D to four absolute presets in the selected bank, Drive/Delay/
-Reverb to their documented module CCs, and Utility to the tuner. It reads state
-back after commands and labels values as confirmed, assumed, or unknown.
-
-Hardware validation on Pocket Master firmware V1.3.3 confirmed preset selection
-and Drive/Delay/Reverb control with USB state readback. Utility's documented
-CC58 also switched the tuner on physically. The global-settings `0201` flag did
-not follow that visible state, so tuner state is tracked as locally assumed—not
-USB-confirmed. Supply the visible startup state when known:
-
-```sh
-./scripts/midimaster-host run --serial /dev/ttyACM0 \
-  --midi-device /dev/snd/midiC2D0 --tuner-starting on
-```
-
-## Hardware baseline
-
-- ESP32-S3 N16R8 development board
-- Matching parallel-header/screw-terminal breakout
-- Ten two-terminal, normally-open momentary footswitches
-- Switch signal terminals: IO4 through IO13
-- All other switch terminals: common GND
-
-Project planning notes and hardware reference photos are kept in the local-only
-`local-only/` folder and are excluded from version control.
-
-## Local toolchain
-
-The project uses PlatformIO Core installed in the project-local `.venv`.
-Downloaded compiler/framework packages are also isolated under `.platformio`.
-
-```sh
-./scripts/pio run
-```
-
-Replacement development is isolated in the `stompbridge-next-input` build.
-It currently exercises the new switch gesture core as a serial diagnostic;
-it does not connect to a pedal or serve the web UI. Compile it without
-uploading with `./scripts/pio run -e stompbridge-next-input`. The separate
-`stompbridge-next-usb` target compiles the experimental USB session adapter;
-it automatically sends read-only synchronization requests after verified USB
-descriptor identification and routes the board switches to live commands. It
-has no web UI. Compile it with `./scripts/pio run -e stompbridge-next-usb`.
-GP-5 sync, effect models, and all 100 preset names were confirmed on hardware
-in this experimental target; Pocket Master has not had the same physical
-validation in this target. The default
-`esp32-s3-n16r8` build remains the working firmware until replacement
-acceptance. See [development checks](docs/development.md) and the
-[architecture progress](docs/architecture.md).
-
-Upload through the board's USB-to-UART connector:
-
-```sh
-./scripts/pio run --target upload
-```
-
-Open the serial diagnostic at 115200 baud:
-
-```sh
-./scripts/pio device monitor
-```
-
-Exit the monitor with `Ctrl-C`.
-
-## Standalone USB pedal setup
-
-See the [USB pedal guide](docs/usb-pedals.md) for wiring, host power, firmware
-settings, and serial troubleshooting for both pedals.
-
-## Embedded Valeton GP-5 USB-host test
-
-The current embedded test maps the switches as follows:
-
-- `BANK-` / `BANK+`: move among 25 local four-preset banks;
-- `A`-`D`: select the four GP-5 presets in the active bank;
-- `DRIVE`, `DELAY`, `REVERB`: toggle the GP-5 DST, DLY, and RVB blocks;
-- `UTILITY`: toggle the tuner with CC58.
-
-Upload through the USB-to-UART service connector, leave the serial monitor on,
-and connect the powered GP-5 to the protected host connector wired to IO19
-(`D-`) and IO20 (`D+`). A successful enumeration prints `USB-MIDI connected`
-with its vendor/product IDs. The firmware then requests GP-5 patch names,
-current preset, and effect-block state over read-only SysEx. Toggle state is
-initially local and changes to confirmed when readback arrives.
-
-## Embedded Pocket Master BLE-MIDI test
-
-The ESP32-S3 acts as the BLE central/client and scans for the standard BLE-MIDI
-service exposed by the pedal. Put the Pocket Master into its Bluetooth MIDI
-advertising/pairing mode, then reset StompBridge. The serial log progresses
-through `BLE-MIDI scanning`, `BLE-MIDI service found`, and `BLE-MIDI connected`.
-The same A-D and effect mappings above are then sent through BLE without any
-changes to the switch or Pocket Master profile code.
-
-## Footswitch hardware test
-
-1. For a switch-only test, leave the battery, pedal USB, and expression jack
-   disconnected. Power only through the board's USB-to-UART/programming
-   connector.
-2. With power disconnected, use continuity mode to confirm every switch is
-   open when released and connects only its assigned GPIO to GND when pressed.
-3. Insulate every unused or loose conductor so it cannot touch another terminal.
-4. Upload the firmware and open the serial monitor.
-5. Confirm the startup line reports `Flash: 16 MB` and all ten
-   initial states are `RELEASED`. `PRESSED/CHECK WIRING` indicates a held switch
-   or a GPIO-to-ground short.
-6. Press and release each switch once in the order below. Expect exactly one
-   `PRESSED` and one `RELEASED` line with the matching name and GPIO:
-
-   `BANK- IO4`, `BANK+ IO5`, `DRIVE IO6`, `DELAY IO7`, `REVERB IO8`,
-   `A IO9`, `B IO10`, `C IO11`, `D IO12`, `UTILITY IO13`.
-
-7. Hold each switch for two seconds and gently move its wire near both ends.
-   There must be no extra events. Then test a few two-switch combinations to
-   catch accidental shorts between signal wires.
-
-The project configuration uses GPIO19/20 for native USB-host MIDI and
-does not use GPIO35/36/37, which are occupied by the N16R8 module's octal PSRAM.
+Original StompBridge code, documentation, and enclosure files are available
+under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for project
+attribution and the upstream Pocket Master model data provenance.

@@ -1,6 +1,9 @@
 # BLE screen UI manual check record
 
-The BLE target has been flashed and discovered by BlueZ. Browser GATT and live control checks remain open.
+Bluefy on iPhone exercised live control with a USB-connected GP-5. The
+bridge logged that an encrypted, bonded session stayed connected past the
+60-second authorization deadline. The remaining phone and desktop checks are
+listed below. For setup, use the [phone screen guide](../ui/README.md).
 
 ## Current local checks
 
