@@ -14,6 +14,10 @@ constexpr char kCommandUuid[] = "9e0d0001-7f4a-4b86-9c31-6a8b7d4c2002";
 constexpr char kEventUuid[] = "9e0d0001-7f4a-4b86-9c31-6a8b7d4c2003";
 constexpr UBaseType_t kEventCapacity = 12;
 constexpr uint32_t kAccessWindowMs = 60000;
+#ifndef STOMPBRIDGE_UI_SERIAL
+constexpr uint32_t kAdvertisingRetryMs = 1000;
+constexpr uint8_t kAdvertisingFailuresBeforeReset = 3;
+#endif
 }
 
 class UiBleServer::ServerCallbacks final : public NimBLEServerCallbacks {
@@ -77,6 +81,7 @@ bool UiBleServer::begin() {
   return events_ != nullptr;
 #else
   if (!beginNimble("StompBridge", /*bonding=*/true)) return false;
+  if (!NimBLEDevice::setPower(0)) Serial.println("BLE UI could not set 0 dBm transmit power");
   events_ = xQueueCreate(kEventCapacity, sizeof(Event));
   if (events_ == nullptr) return false;
   server_ = NimBLEDevice::createServer();
@@ -105,12 +110,46 @@ bool UiBleServer::begin() {
   // Keep the service UUID in the advertisement for the browser filter.
   // The full local name needs the extra space in the scan response.
   advertising->enableScanResponse(true);
+  // Legacy advertising intervals are in 0.625 ms units (100–150 ms here).
+  advertising->setMinInterval(160);
+  advertising->setMaxInterval(240);
   if (!advertising->addServiceUUID(kServiceUuid) ||
       !advertising->setName("StompBridge UI")) return false;
+  advertising_ = advertising;
   refreshProtocolInfo(0);
-  return advertising->start();
+  ensureAdvertising();
+  return true;
 #endif
 }
+
+#ifndef STOMPBRIDGE_UI_SERIAL
+void UiBleServer::ensureAdvertising(bool restart) {
+  lastAdvertisingCheck_ = millis();
+  if (!advertising_ || connected_ || server_->getConnectedCount() != 0) return;
+  const bool active = advertising_->isAdvertising();
+  // Reload both payloads in case an earlier start only uploaded one of them.
+  const bool started = (active && !restart) || (ble_hs_synced() &&
+      (!active || advertising_->stop()) &&
+      advertising_->setAdvertisementData(advertising_->getAdvertisementData()) &&
+      advertising_->setScanResponseData(advertising_->getScanData()) &&
+      advertising_->start());
+  lastAdvertisingCheck_ = millis();
+  if (started) {
+    if (advertisingFailures_ != 0) Serial.println("BLE UI advertising recovered");
+    advertisingFailures_ = 0;
+    advertisingResetRequested_ = false;
+    return;
+  }
+  if (advertisingFailures_ == 0) Serial.println("BLE UI advertising failed; will retry");
+  if (advertisingFailures_ < kAdvertisingFailuresBeforeReset) ++advertisingFailures_;
+  if (advertisingFailures_ == kAdvertisingFailuresBeforeReset && !advertisingResetRequested_ &&
+      ble_hs_synced() && server_->getConnectedCount() == 0) {
+    advertisingResetRequested_ = true;
+    Serial.println("BLE UI resetting Bluetooth host after repeated advertising failures");
+    ble_hs_sched_reset(BLE_HS_EAPP);
+  }
+}
+#endif
 
 void UiBleServer::toggleAuthorizationWindow() {
   const uint32_t now = millis();
@@ -123,7 +162,9 @@ void UiBleServer::toggleAuthorizationWindow() {
   }
   accessUntil_ = now + kAccessWindowMs;
   refreshProtocolInfo(pedalGeneration_);
-  NimBLEDevice::startAdvertising();
+#ifndef STOMPBRIDGE_UI_SERIAL
+  ensureAdvertising(/*restart=*/true);
+#endif
   Serial.println("BLE UI writable window open for 60 seconds");
 }
 
@@ -657,6 +698,10 @@ void UiBleServer::poll(Application &application) {
     prepareNextOutbound(application.snapshot(), application.deviceId());
     sendOutboundFragment(millis());
   }
+#ifndef STOMPBRIDGE_UI_SERIAL
+  if (static_cast<uint32_t>(millis() - lastAdvertisingCheck_) >= kAdvertisingRetryMs)
+    ensureAdvertising();
+#endif
 }
 
 void UiBleServer::operationChanged(OperationId operation,

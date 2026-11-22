@@ -7,6 +7,11 @@
 #include "usb_midi_transport.h"
 #ifdef STOMPBRIDGE_BLE_UI
 #include "platform/ui_ble_server.h"
+#ifndef STOMPBRIDGE_UI_SERIAL
+#include <atomic>
+#include <esp_attr.h>
+#include <esp_system.h>
+#endif
 
 // Keep UI protocol processing on the Arduino loop task with enough stack
 // for frame handling and JSON formatting, including on a fresh build.
@@ -316,6 +321,53 @@ stomp::GestureConfig gestureConfiguration() {
 stomp::Switching switching(gestureConfiguration());
 #ifdef STOMPBRIDGE_BLE_UI
 stomp::platform::UiBleServer uiBleServer;
+#ifndef STOMPBRIDGE_UI_SERIAL
+constexpr uint32_t kBleStartupDelayMs = 1500;
+constexpr uint32_t kBleStartupTimeoutMs = 8000;
+constexpr uint32_t kBleWarmRetryMarker = 0x5342424c;
+enum class BleStartup : uint8_t { Waiting, Starting, Ready, Failed };
+std::atomic<BleStartup> bleStartup{BleStartup::Waiting};
+uint32_t bleStartupAt = 0;
+bool bleStartupFailureHandled = false;
+RTC_NOINIT_ATTR uint32_t bleWarmRetryGuard;
+
+void startBleUi(void *) {
+  const bool ready = uiBleServer.begin();
+  bleStartup.store(ready ? BleStartup::Ready : BleStartup::Failed);
+  vTaskDelete(nullptr);
+}
+
+void pollBleUi() {
+  const uint32_t now = millis();
+  const BleStartup state = bleStartup.load();
+  if (state == BleStartup::Waiting) {
+    if (now - bleStartupAt < kBleStartupDelayMs) return;
+    bleStartupAt = now;
+    bleStartup.store(BleStartup::Starting);
+    Serial.println("BLE UI starting after USB host");
+    // NimBLE init waits for the controller to sync. Keep this off the MIDI loop.
+    if (xTaskCreate(startBleUi, "ble-ui-start", 6144, nullptr, 1, nullptr) != pdPASS)
+      bleStartup.store(BleStartup::Failed);
+    return;
+  }
+  if (state == BleStartup::Ready) {
+    if (bleWarmRetryGuard == kBleWarmRetryMarker) bleWarmRetryGuard = 0;
+    uiBleServer.poll(application);
+    return;
+  }
+  if (bleStartupFailureHandled ||
+      (state == BleStartup::Starting && now - bleStartupAt < kBleStartupTimeoutMs)) return;
+  bleStartupFailureHandled = true;
+  Serial.println(state == BleStartup::Starting ? "BLE UI startup timed out" : "BLE UI startup failed");
+  if (bleWarmRetryGuard != kBleWarmRetryMarker && !transport.connected()) {
+    // A warm restart can recover a failed cold boot once the supply has settled.
+    bleWarmRetryGuard = kBleWarmRetryMarker;
+    Serial.println("BLE UI retrying startup with a warm restart");
+    Serial.flush();
+    esp_restart();
+  }
+}
+#endif
 #endif
 uint32_t reportedSyncRevision = 0;
 uint32_t lastSyncHeartbeatAt = 0;
@@ -438,7 +490,8 @@ void pollSwitches() {
   while (switching.pop(event)) {
 #if defined(STOMPBRIDGE_BLE_UI) && !defined(STOMPBRIDGE_UI_SERIAL)
     if (event.switches == (1u << 9) && event.kind == stomp::GestureKind::Hold) {
-      uiBleServer.toggleAuthorizationWindow();
+      if (bleStartup.load() == BleStartup::Ready) uiBleServer.toggleAuthorizationWindow();
+      else Serial.println("BLE UI unavailable; access window not opened");
     } else if (event.switches == (1u << 9) && event.kind == stomp::GestureKind::Tap) {
       application.gesture({stomp::GestureKind::Press, event.switches, event.atMs});
     } else {
@@ -465,23 +518,34 @@ void setup() {
 #ifdef STOMPBRIDGE_BLE_UI
 #ifdef STOMPBRIDGE_UI_SERIAL
   Serial.println("StompBridge experimental USB + local UI serial target");
-#else
-  Serial.println("StompBridge experimental USB + BLE UI target");
-#endif
   application.setObserver(&uiBleServer);
   if (!uiBleServer.begin()) Serial.println("UI service startup failed");
+#else
+  Serial.println("StompBridge experimental USB + BLE UI target");
+  const esp_reset_reason_t resetReason = esp_reset_reason();
+  if (resetReason != ESP_RST_SW) bleWarmRetryGuard = 0;
+  Serial.printf("ESP32 reset reason=%d%s\n", static_cast<int>(resetReason),
+                resetReason == ESP_RST_BROWNOUT ? " (brownout)" : "");
+#endif
 #else
   Serial.println("StompBridge replacement USB diagnostic");
 #endif
   transport.setVerboseTraffic(false);
   if (!adapter.begin()) Serial.println("Replacement USB adapter startup failed");
+#if defined(STOMPBRIDGE_BLE_UI) && !defined(STOMPBRIDGE_UI_SERIAL)
+  bleStartupAt = millis();
+#endif
 }
 
 void loop() {
   pollSwitches();
   adapter.poll();
 #ifdef STOMPBRIDGE_BLE_UI
+#ifdef STOMPBRIDGE_UI_SERIAL
   uiBleServer.poll(application);
+#else
+  pollBleUi();
+#endif
 #endif
   reportSync();
   reportSyncHeartbeat();

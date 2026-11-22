@@ -71,6 +71,9 @@ private:
   void refreshProtocolInfo(SessionGeneration generation);
   void closeConnection();
   void handleAuthorizationExpiry(uint32_t nowMs);
+#ifndef STOMPBRIDGE_UI_SERIAL
+  void ensureAdvertising(bool restart = false);
+#endif
 #ifdef STOMPBRIDGE_UI_SERIAL
   void pollSerialDevelopmentLink(Application &application);
   void handleSerialDevelopmentLine(const char *line, size_t length,
@@ -105,6 +108,10 @@ private:
   bool resultGapPending_ = false;
   uint32_t observedRevision_ = 0;
 #ifndef STOMPBRIDGE_UI_SERIAL
+  NimBLEAdvertising *advertising_ = nullptr;
+  uint32_t lastAdvertisingCheck_ = 0;
+  uint8_t advertisingFailures_ = 0;
+  bool advertisingResetRequested_ = false;
   uint32_t reportedSnapshotNamesRevision_ = 0;
 #endif
   uint16_t connectionHandle_ = BLE_HS_CONN_HANDLE_NONE;
